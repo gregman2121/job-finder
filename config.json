@@ -1,0 +1,93 @@
+{
+  "_about": "Shared defaults. Don't put personal settings here: run py setup.py, which writes my_config.json (git-ignored) and layers it over this file and any packs it turns on.",
+
+  "packs": [],
+  "salary_min": 100000,
+  "min_score": 45,
+
+  "col": {
+    "_about": "Cost-of-living pay floor for on-site/hybrid jobs: salary_min * place / home. Remote jobs keep salary_min (you'd still live where you are). BEA Regional Price Parities, all items, 2024 (US = 100), from FRED release 403 (fred.stlouisfed.org/release/tables?eid=233639&rid=403), pulled 2026-10-29. Prices only: state/city income tax is not included. BEA publishes new figures each December.",
+    "home": 100.0,
+    "home_name": "US average",
+    "default": 100.0,
+    "states": {"AL": 88.823, "AK": 102.359, "AZ": 100.677, "AR": 86.937, "CA": 110.72, "CO": 103.052, "CT": 103.61,
+               "DE": 99.808, "DC": 109.901, "FL": 103.414, "GA": 96.293, "HI": 109.951, "ID": 95.494, "IL": 99.958,
+               "IN": 93.329, "IA": 87.762, "KS": 90.068, "KY": 90.159, "LA": 88.207, "ME": 97.05, "MD": 104.959,
+               "MA": 105.757, "MI": 96.217, "MN": 98.621, "MS": 86.953, "MO": 90.817, "MT": 94.645, "NE": 90.103,
+               "NV": 99.979, "NH": 104.165, "NJ": 108.805, "NM": 92.212, "NY": 107.921, "NC": 94.326, "ND": 88.959,
+               "OH": 92.774, "OK": 87.843, "OR": 103.361, "PA": 97.572, "RI": 102.28, "SC": 93.749, "SD": 88.586,
+               "TN": 91.87, "TX": 97.057, "UT": 98.864, "VT": 97.958, "VA": 101.104, "WA": 107.013, "WV": 89.497,
+               "WI": 94.095, "WY": 92.691},
+    "state_names": {"district of columbia": "DC", "west virginia": "WV", "north carolina": "NC", "south carolina": "SC",
+                    "north dakota": "ND", "south dakota": "SD", "new hampshire": "NH", "new jersey": "NJ",
+                    "new mexico": "NM", "new york": "NY", "rhode island": "RI", "alabama": "AL", "alaska": "AK",
+                    "arizona": "AZ", "arkansas": "AR", "california": "CA", "colorado": "CO", "connecticut": "CT",
+                    "delaware": "DE", "florida": "FL", "georgia": "GA", "hawaii": "HI", "idaho": "ID",
+                    "illinois": "IL", "indiana": "IN", "iowa": "IA", "kansas": "KS", "kentucky": "KY",
+                    "louisiana": "LA", "maine": "ME", "maryland": "MD", "massachusetts": "MA", "michigan": "MI",
+                    "minnesota": "MN", "mississippi": "MS", "missouri": "MO", "montana": "MT", "nebraska": "NE",
+                    "nevada": "NV", "ohio": "OH", "oklahoma": "OK", "oregon": "OR", "pennsylvania": "PA",
+                    "tennessee": "TN", "texas": "TX", "utah": "UT", "vermont": "VT", "virginia": "VA",
+                    "washington": "WA", "wisconsin": "WI", "wyoming": "WY"},
+    "metros": {
+      "San Francisco": [115.613, ["san francisco", "oakland", "berkeley", "fremont", "hayward", "san mateo", "redwood city", "south san francisco", "emeryville"]],
+      "San Jose": [110.423, ["san jose", "sunnyvale", "santa clara", "mountain view", "palo alto", "cupertino", "milpitas"]],
+      "Los Angeles": [113.566, ["los angeles", "long beach", "anaheim", "irvine", "santa monica", "pasadena", "burbank", "culver city", "glendale, ca"]],
+      "San Diego": [111.887, ["san diego", "carlsbad", "la jolla"]],
+      "New York City": [112.563, ["new york, ny", "new york city", "nyc", "manhattan", "brooklyn", "jersey city", "hoboken", "newark"]],
+      "Miami": [114.155, ["miami", "fort lauderdale", "west palm beach", "boca raton"]],
+      "Seattle": [111.133, ["seattle", "bellevue", "redmond", "kirkland", "tacoma", "everett"]],
+      "Washington DC": [108.884, ["washington, dc", "washington dc", "washington, d.c.", "arlington, va", "alexandria, va", "reston", "mclean", "tysons", "herndon", "bethesda"]],
+      "Boston": [108.266, ["boston", "cambridge, ma", "waltham", "somerville", "newton, ma", "quincy, ma"]],
+      "Denver": [105.782, ["denver", "aurora, co", "lakewood, co", "englewood, co"]],
+      "Chicago": [103.595, ["chicago"]],
+      "Austin": [98.066, ["austin"]]
+    }
+  },
+
+  "title_tiers": {
+    "40": ["automation engineer", "infrastructure automation", "it automation", "automation developer",
+           "servicenow developer", "servicenow engineer", "integration engineer", "integrations engineer"],
+    "32": ["devops", "site reliability", "sre", "platform engineer", "systems engineer", "infrastructure engineer",
+           "cloud engineer", "linux engineer", "python developer", "python engineer", "solutions engineer"],
+    "22": ["systems administrator", "sysadmin", "system administrator", "systems analyst", "it engineer",
+           "technical analyst", "software engineer", "backend engineer", "back end engineer", "application developer",
+           "applications engineer", "it systems", "technology engineer"]
+  },
+
+  "title_exclude": ["intern", "internship", "sales", "recruiter", "account executive", "marketing automation",
+                    "test automation", "qa ", "quality assurance", "sdet", "plc", "scada", "controls engineer",
+                    "robotics", "electrical", "mechanical", "manufacturing", "process automation", "building automation",
+                    "network engineer", "frontend", "front end", "ios", "android", "machine learning", "data scientist",
+                    "photonics", "plm", "windchill", "foundry", "hardware", "silicon", "firmware", "optical",
+                    "semiconductor", "hvac", "building engineer", "designer", "marketing", "social",
+                    "transportation", "director", "vice president", "vp ", "head of", "principal", "distinguished", "manager"],
+
+  "description_exclude": ["security clearance", "active clearance", "ts/sci", "top secret", "secret clearance",
+                          "must be located in canada", "must reside in the uk", "eu only", "europe only", "latam only",
+                          "india only", "apac only", "revenue quota", "quota-carrying", "quota carrying", "sales quota"],
+
+  "skills": ["python", "linux", "bash", "powershell", "git", "sql", "rest api", "apis", "aws", "azure",
+             "automation", "scripting", "monitoring", "alerting", "jira"],
+
+  "gaps": [],
+
+  "preferred_label": "",
+  "preferred_places": [],
+
+  "dream_label": "",
+  "dream_sources": [],
+  "dream_terms": [],
+  "dream_tech_words": ["engineer", "developer", "systems", "it ", "information technology", "technology", "software",
+                      "data", "cloud", "devops", "automation", "infrastructure", "technical", "administrator",
+                      "integration", "platform"],
+
+  "searches": ["automation engineer", "devops engineer", "site reliability engineer", "platform engineer",
+               "python developer", "systems engineer", "infrastructure engineer", "integration engineer"],
+  "jobicy_tags": ["python", "devops", "automation", "sysadmin"],
+
+  "teamwork_boards": [],
+  "workday_boards": [],
+  "golfjobs_queries": [],
+  "golfjobs_skip_companies": []
+}

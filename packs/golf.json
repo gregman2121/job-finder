@@ -1,0 +1,28 @@
+{
+  "_about": "Golf industry pack: PGA TOUR, PGA of America, USGA, Topgolf, club makers and golf tech. Turn it on with \"packs\": [\"golf\"] in my_config.json (py setup.py asks). Copy this file to make a pack for your own industry.",
+
+  "dream_label": "golf",
+  "dream_sources": ["TeamWork", "Workday", "Golf-Jobs"],
+  "dream_terms": ["golf", "pga", "lpga", "usga", "topgolf", "callaway", "titleist", "acushnet", "taylormade", "ping",
+                 "troon", "arccos", "trackman", "foresight", "full swing", "golfnow", "golf genius", "tee time",
+                 "country club", "invited clubs"],
+
+  "teamwork_boards": [
+    "golf-tennis-jobs/pgatour/pga-tour-jobs-2",
+    "golf-tennis-jobs/pga-of-america/pga-of-america-jobs",
+    "golf-tennis-jobs/usga-jobs/usga-jobs",
+    "golf-tennis-jobs/topgolf-jobs/topgolf-jobs",
+    "golf-tennis-jobs/pga-championships/pga-championships",
+    "golf-tennis-jobs/golf-jobs/golf-jobs"
+  ],
+  "workday_boards": [
+    {"name": "PGA TOUR", "host": "pgatour.wd5.myworkdayjobs.com", "tenant": "pgatour", "site": "PGATOURExternal"},
+    {"name": "Acushnet (Titleist/FootJoy)", "host": "acushnetgolf.wd12.myworkdayjobs.com", "tenant": "acushnetgolf", "site": "ACU"},
+    {"name": "TaylorMade", "host": "taylormadegolf.wd5.myworkdayjobs.com", "tenant": "taylormadegolf", "site": "taylormadegolf"},
+    {"name": "Topgolf Callaway Brands", "host": "tcbrands.wd1.myworkdayjobs.com", "tenant": "tcbrands", "site": "callaway-careers"},
+    {"name": "Topgolf", "host": "topgolf.wd501.myworkdayjobs.com", "tenant": "topgolf", "site": "TopgolfCareers"}
+  ],
+  "golfjobs_queries": ["engineer", "developer", "software", "systems", "automation", "devops", "information technology",
+                       "data", "integration", "technical"],
+  "golfjobs_skip_companies": ["pga tour", "acushnet", "titleist", "footjoy", "taylormade", "topgolf", "callaway"]
+}
