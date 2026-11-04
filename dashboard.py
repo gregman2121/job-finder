@@ -20,6 +20,13 @@ import letters
 
 app = Flask(__name__)
 STATUSES = ["new", "applied", "skip", "rejected", "interview"]
+SORTS = {  # column -> sort key; jobs with no score or pay sort as 0
+    "score": lambda r: int(r["score"]) if r["score"].isdigit() else 0,
+    "pay": lambda r: int(r["pay_max"]) if r["pay_max"].isdigit() else 0,
+    "found": lambda r: r["found"],
+    "company": lambda r: r["company"].lower(),
+    "status": lambda r: r["status"],
+}
 
 CSS = """
 :root{--bg:#f6f5f1;--card:#fff;--ink:#1d1d1b;--muted:#6b6a64;--line:#e3e1d9;--accent:#1f6b45;--warn:#a5481d;--flag:#fff4e5}
@@ -68,8 +75,19 @@ def index():
     days = int(request.args.get("days", 14))
     since = (dt.date.today() - dt.timedelta(days=days)).isoformat()
     rows = [r for r in read_tracker() if (show == "all" or r["status"] == show) and r["found"] >= since]
-    rows.sort(key=lambda r: (r["found"], int(r["score"] or 0)), reverse=True)
-    links = " ".join(f"<a href='?status={s}&days={days}'>{s}</a>" for s in STATUSES + ["all"])
+    # Click a column header to sort by it; click it again to flip the order. Default: newest first.
+    sort = request.args.get("sort", "found") if request.args.get("sort") in SORTS else "found"
+    desc = request.args.get("dir", "desc") != "asc"
+    rows.sort(key=lambda r: (SORTS[sort](r), r["found"]), reverse=desc)  # ties: newest first
+    if sort in ("score", "pay"):  # jobs with no score or pay listed stay at the bottom either way
+        rows = [r for r in rows if SORTS[sort](r)] + [r for r in rows if not SORTS[sort](r)]
+    links = " ".join(f"<a href='?status={s}&days={days}&sort={sort}&dir={'desc' if desc else 'asc'}'>{s}</a>"
+                     for s in STATUSES + ["all"])
+
+    def th(label, key):
+        flip = "asc" if (key == sort and desc) else "desc"
+        arrow = (" ▼" if desc else " ▲") if key == sort else ""
+        return f"<th><a href='?status={show}&days={days}&sort={key}&dir={flip}'>{label}{arrow}</a></th>"
     trs = "".join(
         f"<tr><td class=score>{html.escape(r['score'] or '-')}</td>"
         f"<td><a href='{url_for('job', job_id=r['id'])}'>{html.escape(r['title'][:90])}</a><br>"
@@ -80,7 +98,8 @@ def index():
                 f"<b>{html.escape(show)}</b>, last {days} days</p><p class=filters>{links}</p>"
                 f"<form method=post action='/quit' style='float:right;margin-top:-40px'>"
                 f"<button class=plain>Stop dashboard</button></form>"
-                f"<table><tr><th>Score</th><th>Job</th><th>Pay up to</th><th>Found</th><th>Status</th></tr>"
+                f"<table><tr>{th('Score', 'score')}{th('Job', 'company')}{th('Pay up to', 'pay')}"
+                f"{th('Found', 'found')}{th('Status', 'status')}</tr>"
                 f"{trs or '<tr><td colspan=5>Nothing here.</td></tr>'}</table>")
 
 
