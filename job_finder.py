@@ -343,13 +343,24 @@ def score(j):
         else:
             return None, "title not a fit"
 
+    # Skill match is scored as coverage, not a raw count: 5 of 7 recognized tools beats 1 of 7, the way a
+    # hiring manager reads it. Only tools on your skills and gaps lists count, since the posting's full
+    # requirement list isn't parsed. A posting that names just 1-2 known tools gets partial credit, so a
+    # thin "Python, SQL" ad can't score like a 10-for-10 match.
     skills = has(desc, CFG["skills"])
-    pts += min(len(skills) * 2, 24)
+    gaps = has(desc, CFG["gaps"])  # tools the posting wants that aren't on your resume
+    known = len(skills) + len(gaps)
+    # A low match only means something when the posting names enough tools: 1 of 3 is noise, 2 of 9 is a no.
+    if (not dream and known >= CFG["min_coverage_from"]
+            and len(skills) / known < CFG["min_coverage"]):
+        return None, "skill match too low"
+    if known:
+        coverage = len(skills) / known
+        pts += round(CFG["skill_points"] * coverage * min(known, CFG["skill_full_at"]) / CFG["skill_full_at"])
+        why.append(f"skill match: {len(skills)} of {known} ({coverage:.0%})")
     if skills:
         why.append("your skills: " + ", ".join(skills[:8]))
-    gaps = has(desc, CFG["gaps"])
-    if gaps:  # tools the posting wants that aren't on your resume
-        pts -= min(len(gaps) * 4, 12)
+    if gaps:
         why.append("gaps: " + ", ".join(gaps[:5]))
 
     hi = j["salary_max"] or j["salary_min"]
