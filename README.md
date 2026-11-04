@@ -37,8 +37,11 @@ python job_finder.py --kit <TrackerID>           # save one job's full posting t
    a job under a different company name (same title plus a matching stretch of description).
 4. **Filters** out titles you'd never take, clearance-only or region-locked postings, remote jobs that aren't
    open to the US, and jobs whose posted pay tops out below your floor.
-5. **Scores** what's left: title match tier, how many of your skills the posting names, tools you don't know
-   (a penalty), pay listed, remote, your preferred places, and your dream industry.
+5. **Scores** what's left: title match tier, skill coverage (of the tools the posting names that are on your
+   `skills` or `gaps` lists, the share you have: 5 of 7 scores well above 1 of 7, worth up to `skill_points`,
+   with partial credit when fewer than `skill_full_at` tools are named), pay listed, remote, your preferred
+   places, and your dream industry. Non-golf jobs that name at least `min_coverage_from` (5) of those tools
+   and where you have under `min_coverage` (40%) are dropped; with fewer tools named, the share is too noisy to judge.
 6. **Reports** the top matches with the reasons for each score, and appends them to `tracker.csv`, where you
    mark each one `applied` or `skip`.
 
@@ -97,3 +100,38 @@ console attached it logs to `daily.log`. On macOS/Linux, a cron line like
 ## License
 
 MIT
+
+## Cover letters with Gemini (optional)
+
+`letters.py` drafts a cover letter for one tracked job with the Gemini API, and `dashboard.py` puts a
+**Write cover letter** button next to every job. You still read every letter and apply yourself.
+
+How it keeps letters honest:
+
+1. **Facts file.** Copy `facts.example.md` to `my_facts.md` (git-ignored) and list what you've actually done,
+   worded the way you want it, plus a "Not yet" list of things you can't claim. The writer may only use this file.
+2. **Fact check.** A second Gemini call reads the draft against the facts file and flags any sentence that
+   isn't backed up, overstates it ("built" where the facts say "maintain"), or claims something under "Not yet".
+   The flags show above the letter.
+3. **Human review.** Nothing is sent anywhere. You get the text and a Word file, and you decide.
+
+Job postings are treated as data: the prompt tells the model to ignore instructions inside them, and the
+fact check plus your own read catch anything that slips through.
+
+Setup (Windows):
+
+```
+py -m venv .venv
+.venv\Scripts\python.exe -m pip install -r requirements-letters.txt
+setx GEMINI_API_KEY "<your key>"        (then open a new terminal)
+.venv\Scripts\python.exe letters.py <TrackerID>     # one letter from the command line
+.venv\Scripts\python.exe dashboard.py               # then open http://127.0.0.1:5000
+```
+
+No console window: point a desktop shortcut at `.venv\Scripts\pythonw.exe open_dashboard.pyw` (icon:
+`assets\dashboard.ico`). It starts the dashboard in the background and opens your browser; the page's
+**Stop dashboard** button shuts it down.
+
+Models are tried in the order of `letter_models` in `config.json`; busy or failing ones are skipped. Word
+files go to `letters_dir` and are never overwritten (a second letter for the same company gets `_v2`).
+The dashboard only listens on 127.0.0.1 and rejects form posts from other sites.

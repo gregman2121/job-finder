@@ -8,3 +8,7 @@ reports/
 kits/
 __pycache__/
 *.pyc
+my_facts.md
+letters/
+.venv/
+dashboard.log

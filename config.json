@@ -3,7 +3,13 @@
 
   "packs": [],
   "salary_min": 100000,
-  "min_score": 45,
+  "min_score": 55,
+  "skill_points": 30,
+  "skill_full_at": 4,
+  "min_coverage": 0.40,
+  "min_coverage_from": 5,
+  "letter_models": ["gemini-3.6-flash", "gemini-3.5-flash", "gemini-3.5-flash-lite"],
+  "letters_dir": "letters",
 
   "col": {
     "_about": "Cost-of-living pay floor for on-site/hybrid jobs: salary_min * place / home. Remote jobs keep salary_min (you'd still live where you are). BEA Regional Price Parities, all items, 2024 (US = 100), from FRED release 403 (fred.stlouisfed.org/release/tables?eid=233639&rid=403), pulled 2026-10-29. Prices only: state/city income tax is not included. BEA publishes new figures each December.",
