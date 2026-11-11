@@ -1,14 +1,44 @@
 # Job finder
 
+**Every morning, a short ranked list of jobs worth applying to, each linked to the employer's own posting.**
+
 A daily job-search pipeline that pulls listings from 8 free public sources, normalizes them into one
-schema, drops duplicates and reposts, scores each job against your titles, skills and pay floor, and
-writes a ranked report.
+schema, drops duplicates and reposts, scores each job against your titles, skills and pay floor, finds the
+posting on the employer's own hiring system, and writes a ranked report plus a tracker you can work from a
+local dashboard.
+
+![Dashboard with demo data](assets/dashboard-demo.jpg)
+<sub>Dashboard shown with made-up demo jobs.</sub>
 
 **It never applies to anything.** You read the report, open the links you like, and submit yourself.
 Auto-apply bots spray low-quality applications and get accounts flagged; this does the boring part
 (finding and filtering) and leaves the judgment to you.
 
-Pure Python standard library: no installs, no API keys, no accounts.
+Core pipeline is pure Python standard library: no installs, no API keys, no accounts.
+
+### A report entry
+
+```markdown
+### 1. Senior Automation Engineer at Northwind Health (score 91)
+- **Where:** Remote: United States | **Pay:** $132,000–$158,000 | **Posted:** 2026-11-10 | via Himalayas
+- **Why:** title: automation engineer; skill match: 6 of 7 (86%); your skills: python, sql, powershell, rest api, servicenow, power automate; gaps: databricks; pay up to $158,000; remote
+- **Link:** https://jobs.ashbyhq.com/northwind/... (employer) | [listing](https://himalayas.app/...)
+- **Tracker ID:** `a1b2c3d4e5f6`
+```
+
+### Engineering highlights
+
+- **Resilient fetching:** each source is isolated, so one broken feed is logged and skipped while the run finishes.
+- **One schema from eight shapes:** JSON APIs, RSS, a Workday feed and an HTML scrape all normalize to the same fields,
+  with salary parsing that refuses to read non-USD pay as dollars.
+- **Real de-duplication:** cross-source duplicates, already-seen jobs, and reposts under a different company name
+  (matched on title plus a shared stretch of description).
+- **Explainable scoring:** every score lists its reasons, so you can tune `config.json` instead of trusting a black box.
+- **Employer links:** kept jobs are looked up on the employer's Ashby, Greenhouse or Lever board in parallel, so you
+  apply at the source instead of through an aggregator.
+- **Honest AI, kept optional:** the Gemini cover-letter writer may only use your own facts file, and a second model
+  pass flags any sentence the facts don't back up.
+- **Private by default:** your answers, tracker, reports and letters are all git-ignored and never leave your machine.
 
 ## Quick start
 
@@ -42,7 +72,9 @@ python job_finder.py --kit <TrackerID>           # save one job's full posting t
    with partial credit when fewer than `skill_full_at` tools are named), pay listed, remote, your preferred
    places, and your dream industry. Non-golf jobs that name at least `min_coverage_from` (5) of those tools
    and where you have under `min_coverage` (40%) are dropped; with fewer tools named, the share is too noisy to judge.
-6. **Reports** the top matches with the reasons for each score, and appends them to `tracker.csv`, where you
+6. **Links to the employer**: each kept job is looked up on the company's Ashby, Greenhouse or Lever board. A match
+   becomes the main link (the job-board link stays alongside); no match gets a "find on their careers page" search link.
+7. **Reports** the top matches with the reasons for each score, and appends them to `tracker.csv`, where you
    mark each one `applied` or `skip`.
 
 ## Cost-of-living pay floor
@@ -97,10 +129,6 @@ Windows Task Scheduler: create a daily task that runs `pythonw.exe job_finder.py
 console attached it logs to `daily.log`. On macOS/Linux, a cron line like
 `0 7 * * * cd /path/to/job-finder && python3 job_finder.py` does the same.
 
-## License
-
-MIT
-
 ## Cover letters with Gemini (optional)
 
 `letters.py` drafts a cover letter for one tracked job with the Gemini API, and `dashboard.py` puts a
@@ -135,3 +163,7 @@ No console window: point a desktop shortcut at `.venv\Scripts\pythonw.exe open_d
 Models are tried in the order of `letter_models` in `config.json`; busy or failing ones are skipped. Word
 files go to `letters_dir` and are never overwritten (a second letter for the same company gets `_v2`).
 The dashboard only listens on 127.0.0.1 and rejects form posts from other sites.
+
+## License
+
+MIT
