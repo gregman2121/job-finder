@@ -19,6 +19,7 @@ import sys
 import time
 import urllib.parse
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 HERE = Path(__file__).parent
@@ -401,6 +402,56 @@ def score(j):
     return pts, why
 
 
+# ---------- employer links ----------
+
+# Public job-board APIs of the hiring systems employers use: (url template, list key or None, title key, link key)
+ATS = [("https://api.ashbyhq.com/posting-api/job-board/{}", "jobs", "title", "jobUrl"),
+       ("https://boards-api.greenhouse.io/v1/boards/{}/jobs", "jobs", "title", "absolute_url"),
+       ("https://api.lever.co/v0/postings/{}?mode=json", None, "text", "hostedUrl")]
+ALREADY_DIRECT = ("Workday", "TeamWork", "HN Who's Hiring")  # source prefixes whose links already go to the employer
+_boards = {}
+
+
+def ats_board(api, slug):
+    """One company's open jobs from one hiring system, or [] (404 = company isn't on it). Cached per run."""
+    url, list_key, _, _ = api
+    key = url.format(slug)
+    if key not in _boards:
+        try:
+            with urllib.request.urlopen(urllib.request.Request(key, headers={"User-Agent": UA}), timeout=15) as r:
+                data = json.loads(r.read())
+            _boards[key] = data.get(list_key, []) if list_key else data
+        except Exception:  # 404s are the normal "not on this system" answer, so no retry or log
+            _boards[key] = []
+    return _boards[key]
+
+
+def employer_link(j):
+    """The posting on the employer's own hiring system (Ashby/Greenhouse/Lever), or None."""
+    name = re.sub(r"[,.]?\s+(inc|llc|ltd|corp|co|corporation|company)\.?$", "", j["company"].lower().strip())
+    words = re.findall(r"[a-z0-9]+", name)
+    want = norm_title(j["title"])
+    for slug in dict.fromkeys(["".join(words), "-".join(words)]):  # "bayesianhealth", "bayesian-health"
+        for api in ATS:
+            posts = [p for p in ats_board(api, slug) if isinstance(p, dict) and p.get(api[3])]
+            exact = [p for p in posts if norm_title(p.get(api[2], "")) == want]
+            close = [p for p in posts if want in norm_title(p.get(api[2], "")) or norm_title(p.get(api[2], "")) in want]
+            hit = exact or (close if len(close) == 1 else [])  # several near-matches: don't guess
+            if hit:
+                return hit[0][api[3]]
+    return None
+
+
+def add_employer_links(jobs):
+    """Point kept jobs at the employer's posting; the board link stays as board_url."""
+    todo = [j for j in jobs if not j["source"].startswith(ALREADY_DIRECT)]
+    with ThreadPoolExecutor(8) as pool:
+        for j, link in zip(todo, pool.map(employer_link, todo)):
+            if link:
+                j["board_url"], j["url"] = j["url"], link
+    print(f"Employer links: {sum('board_url' in j for j in todo)} of {len(todo)}")
+
+
 # ---------- output ----------
 
 def load_seen():
@@ -416,7 +467,10 @@ def entry(n, s, why, j):
     return [f"### {n}. {j['title']} at {j['company']} (score {s})",
             f"- **Where:** {j['location']} | **Pay:** {pay} | **Posted:** {j['posted'] or '?'} | via {j['source']}",
             f"- **Why:** {'; '.join(why)}",
-            f"- **Link:** {j['url']}",
+            f"- **Link:** {j['url']}" + (f" (employer) | [listing]({j['board_url']})" if j.get("board_url") else
+                                          "" if j["source"].startswith(ALREADY_DIRECT) else
+                                          " | [find on their careers page](https://www.google.com/search?q="
+                                          + urllib.parse.quote_plus(f"{j['company']} careers {j['title']}") + ")"),
             f"- **Tracker ID:** `{j['id']}`", ""]
 
 
@@ -470,11 +524,26 @@ def is_repost(a, b):
     return short[250:400] in long_
 
 
+def tracker_job(job_id):
+    """A job added to tracker.csv by hand (email alerts, Indeed connector) isn't in the cache.
+    Build a kit-ready job from its tracker row; the posting text is left for Greg to paste."""
+    if not TRACKER.exists():
+        return None
+    with TRACKER.open(newline="", encoding="utf-8-sig") as f:
+        for row in csv.DictReader(f):
+            if row.get("id") == job_id:
+                notes = (row.get("notes") or "").strip()
+                return {"title": row["title"], "company": row["company"], "location": row["location"],
+                        "url": row["url"], "description": "",
+                        "source": "tracker.csv (added by hand)" + (f". Tracker notes: {notes}" if notes else "")}
+    return None
+
+
 def make_kit(job_id):
     """Save one job's full posting to kits/<id>.md so Claude can draft a cover letter from it."""
-    j = load_cache().get(job_id)
+    j = load_cache().get(job_id) or tracker_job(job_id)
     if not j:
-        sys.exit(f"No job with ID {job_id} in the cache. Use a Tracker ID from a report.")
+        sys.exit(f"No job with ID {job_id} in the cache or tracker.csv. Use a Tracker ID from a report.")
     (HERE / "kits").mkdir(exist_ok=True)
     path = HERE / "kits" / f"{job_id}.md"
     path.write_text("\n".join([
@@ -548,6 +617,7 @@ def main():
     if report.exists():  # second run the same day gets its own file instead of overwriting the first
         report = report.with_name(f"{dt.datetime.now():%Y-%m-%d-%H%M}.md")
     dream.sort(key=lambda r: -r[0])
+    add_employer_links([j for _, _, j in dream + ranked])
     cache = load_cache()
     cache.update({j["id"]: j for _, _, j in dream + ranked})
     CACHE.write_text(json.dumps(cache, ensure_ascii=False), encoding="utf-8")
