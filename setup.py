@@ -5,6 +5,7 @@
 Re-run it any time to change your answers. config.json stays untouched, so the defaults are always there.
 """
 import json
+import re
 from pathlib import Path
 
 HERE = Path(__file__).parent
@@ -28,6 +29,19 @@ def money(text):
     return int(float(t[:-1]) * 1000) if t.endswith("k") else int(float(t))
 
 
+def allowed_exclusions(exclude, titles):
+    """Drop the default title exclusions that appear in your own titles, as whole words (same rule as job_finder.has).
+
+    >>> allowed_exclusions(["marketing", "manager", "intern", "vp "], ["marketing manager", "vp of finance"])
+    ['intern']
+    >>> allowed_exclusions(["marketing", "sales"], ["automation engineer"])
+    ['marketing', 'sales']
+    """
+    def in_titles(w):
+        return any(re.search(r"(?<![a-z0-9])" + re.escape(w.strip()) + r"(?![a-z0-9])", t) for t in titles)
+    return [w for w in exclude if not in_titles(w)]
+
+
 def main():
     print("Job finder setup. Press Enter to keep the value in [brackets].\n")
     mine = {}
@@ -35,6 +49,7 @@ def main():
     titles = words(ask("1. What job titles are you looking for? (comma-separated)", "automation engineer, devops engineer"))
     mine["title_tiers"] = {"40": titles}  # your titles score highest; the default tiers below still apply
     mine["searches"] = titles  # what the search APIs are asked for
+    mine["title_exclude"] = allowed_exclusions(CFG["title_exclude"], titles)  # "marketing manager" can't be filtered out
 
     mine["salary_min"] = money(ask("2. Minimum yearly pay (USD), where you live now", "100k"))
 
