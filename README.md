@@ -7,7 +7,7 @@ schema, drops duplicates and reposts, scores each job against your titles, skill
 posting on the employer's own hiring system, and writes a ranked report plus a tracker you can work from a
 local dashboard.
 
-![Dashboard with demo data](assets/dashboard-demo.jpg)
+![Dashboard with demo data](assets/dashboard-demo.png)
 <sub>Dashboard shown with made-up demo jobs.</sub>
 
 **It never applies to anything.** You read the report, open the links you like, and submit yourself.
@@ -36,8 +36,13 @@ Core pipeline is pure Python standard library: no installs, no API keys, no acco
 - **Explainable scoring:** every score lists its reasons, so you can tune `config.json` instead of trusting a black box.
 - **Employer links:** kept jobs are looked up on the employer's Ashby, Greenhouse or Lever board in parallel, so you
   apply at the source instead of through an aggregator.
-- **Honest AI, kept optional:** the Gemini cover-letter writer may only use your own facts file, and a second model
+- **Honest AI, kept optional:** the cover-letter writer may only use your own facts file, and a second model
   pass flags any sentence the facts don't back up.
+- **Budget-aware model choice:** letters run on free Gemini or on your own Claude subscription through Claude Code
+  (no API key); Auto reads your weekly Claude usage and steps from Opus to Sonnet to Haiku to Gemini as it runs low,
+  by rules you set.
+- **Phone-ready dashboard:** a key-protected local web app you can reach over your home network or Tailscale, with
+  live progress while a letter is written.
 - **Private by default:** your answers, tracker, reports and letters are all git-ignored and never leave your machine.
 
 ## Quick start
@@ -129,16 +134,17 @@ Windows Task Scheduler: create a daily task that runs `pythonw.exe job_finder.py
 console attached it logs to `daily.log`. On macOS/Linux, a cron line like
 `0 7 * * * cd /path/to/job-finder && python3 job_finder.py` does the same.
 
-## Cover letters with Gemini (optional)
+## Cover letters with Gemini or Claude (optional)
 
-`letters.py` drafts a cover letter for one tracked job with the Gemini API, and `dashboard.py` puts a
-**Write cover letter** button next to every job. You still read every letter and apply yourself.
+`letters.py` drafts a cover letter for one tracked job with the free Gemini API or your own Claude
+subscription (see "Which model writes" below), and `dashboard.py` puts a **Write cover letter** button on
+every job. You still read every letter and apply yourself.
 
 How it keeps letters honest:
 
 1. **Facts file.** Copy `facts.example.md` to `my_facts.md` (git-ignored) and list what you've actually done,
    worded the way you want it, plus a "Not yet" list of things you can't claim. The writer may only use this file.
-2. **Fact check.** A second Gemini call reads the draft against the facts file and flags any sentence that
+2. **Fact check.** A second call to the same model reads the draft against the facts file and flags any sentence that
    isn't backed up, overstates it ("built" where the facts say "maintain"), or claims something under "Not yet".
    The flags show above the letter.
 3. **Human review.** Nothing is sent anywhere. You get the text and a Word file, and you decide.
@@ -157,8 +163,8 @@ setx GEMINI_API_KEY "<your key>"        (then open a new terminal)
 ```
 
 No console window: point a desktop shortcut at `.venv\Scripts\pythonw.exe open_dashboard.pyw` (icon:
-`assets\dashboard.ico`). It starts the dashboard in the background and opens your browser; the page's
-**Stop dashboard** button shuts it down.
+`assets\dashboard.ico`). It starts the dashboard in the background and opens your browser; the
+**Stop dashboard** button on its Settings page shuts it down.
 
 **Which model writes:** `letter_model` picks it (each job page has a model and effort picker too).
 `gemini` (the default) uses the free Gemini API key. If you have a Claude subscription and Claude Code
