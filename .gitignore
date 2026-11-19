@@ -1,6 +1,6 @@
 # Your answers and everything the finder writes about your search stay on your machine
 my_config.json
-tracker.csv
+tracker.csv*
 seen.json
 jobs_cache.json
 daily.log
@@ -12,3 +12,4 @@ my_facts.md
 letters/
 .venv/
 dashboard.log
+.claude/

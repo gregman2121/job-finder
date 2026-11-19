@@ -27,4 +27,4 @@ sys.path.insert(0, str(here))
 import dashboard  # noqa: E402
 
 threading.Thread(target=lambda: (time.sleep(1.5), webbrowser.open(URL)), daemon=True).start()
-dashboard.app.run(host="127.0.0.1", port=5000, debug=False)
+dashboard.app.run(host=dashboard.HOST, port=dashboard.PORT, debug=False)

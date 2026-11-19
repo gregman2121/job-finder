@@ -1,12 +1,18 @@
 """Local job dashboard: your tracker as a page, with a Cover letter button on each job.
 
-Runs only on this computer (127.0.0.1). Nothing here applies to jobs: you read the letter, check the
-flags, download the Word file and apply yourself.
+Runs only on this computer (127.0.0.1) unless DASHBOARD_KEY is set; then your phone can reach it too, with
+the key (see guard()). Nothing here applies to jobs: you read the letter, check the flags, download the
+Word file and apply yourself.
 
     .venv\\Scripts\\python.exe dashboard.py      then open http://127.0.0.1:5000
 """
 import csv
+import hmac
+import ipaddress
+import logging
 import os
+import socket
+import shutil
 import threading
 import html
 import re
@@ -19,6 +25,39 @@ import job_finder as jf
 import letters
 
 app = Flask(__name__)
+
+
+class HideQuery(logging.Filter):
+    """Keep the phone's ?key=... (or any query string) out of dashboard.log."""
+    def filter(self, rec):
+        rec.args = tuple(re.sub(r"\?\S*", "?***", a) if isinstance(a, str) else a for a in (rec.args or ()))
+        return True
+
+
+logging.getLogger("werkzeug").addFilter(HideQuery())
+PORT = 5000
+# Set the DASHBOARD_KEY user environment variable to open the dashboard to your home network (phone);
+# without it, it stays on this PC only.
+KEY = os.environ.get("DASHBOARD_KEY", "")
+HOST = "0.0.0.0" if KEY else "127.0.0.1"
+
+
+def lan_ip():
+    """This PC's address on the home network: the one its internet route uses (a UDP 'connect' sends nothing)."""
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+        s.connect(("8.8.8.8", 80))
+        return s.getsockname()[0]
+
+
+def tailscale_ips():
+    """This PC's Tailscale addresses (100.64.0.0/10), so the phone works from anywhere, not just home wifi."""
+    cgnat = ipaddress.ip_network("100.64.0.0/10")
+    return [ip for ip in socket.gethostbyname_ex(socket.gethostname())[2] if ipaddress.ip_address(ip) in cgnat]
+
+
+LAN_IPS = [*tailscale_ips(), lan_ip()] if KEY else []  # first one is the address shown on the page
+ALLOWED_HOSTS = {f"{h}:{PORT}" for h in ["127.0.0.1", "localhost", *LAN_IPS]}
+RESUMES = [(jf.HERE / p).resolve() for p in jf.CFG.get("resume_files", [])]
 STATUSES = ["new", "applied", "skip", "rejected", "interview"]
 SORTS = {  # column -> sort key; jobs with no score or pay sort as 0
     "score": lambda r: int(r["score"]) if r["score"].isdigit() else 0,
@@ -44,8 +83,9 @@ pre{white-space:pre-wrap;font:inherit;margin:0}.flag{background:var(--flag);bord
 """
 
 
-def page(title, body):
-    return (f"<!doctype html><html lang=en><head><meta charset=utf-8><meta name=viewport "
+def page(title, body, refresh=0):
+    meta = f"<meta http-equiv=refresh content={refresh}>" if refresh else ""
+    return (f"<!doctype html><html lang=en><head><meta charset=utf-8>{meta}<meta name=viewport "
             f"content='width=device-width,initial-scale=1'><title>{html.escape(title)}</title>"
             f"<style>{CSS}</style></head><body><main>{body}</main></body></html>")
 
@@ -56,10 +96,16 @@ def read_tracker():
 
 
 def write_tracker(rows):
-    with jf.TRACKER.open("w", encoding="utf-8-sig", newline="") as f:
+    if not rows:
+        raise ValueError("refusing to write an empty tracker")
+    # write a temp file and swap it in, so a crash mid-write can't empty the tracker
+    tmp = jf.TRACKER.with_suffix(".csv.tmp")
+    with tmp.open("w", encoding="utf-8-sig", newline="") as f:
         w = csv.DictWriter(f, fieldnames=list(rows[0].keys()), quoting=csv.QUOTE_MINIMAL)
         w.writeheader()
         w.writerows(rows)
+    shutil.copy2(jf.TRACKER, jf.TRACKER.with_suffix(".csv.bak"))
+    os.replace(tmp, jf.TRACKER)
 
 
 def find_row(job_id):
@@ -95,7 +141,9 @@ def index():
         f"<td>{('$' + format(int(r['pay_max']), ',')) if r['pay_max'].isdigit() else '-'}</td>"
         f"<td>{html.escape(r['found'])}</td><td>{html.escape(r['status'])}</td></tr>" for r in rows)
     return page("Job dashboard", f"<h1>Job dashboard</h1><p class=muted>{len(rows)} jobs, status "
-                f"<b>{html.escape(show)}</b>, last {days} days</p><p class=filters>{links}</p>"
+                f"<b>{html.escape(show)}</b>, last {days} days</p>"
+                + "".join(f"<p class=muted>On your phone: http://{ip}:{PORT}</p>" for ip in LAN_IPS[:1])
+                + f"<p class=filters>{links}</p>"
                 f"<form method=post action='/quit' style='float:right;margin-top:-40px'>"
                 f"<button class=plain>Stop dashboard</button></form>"
                 f"<table><tr>{th('Score', 'score')}{th('Job', 'company')}{th('Pay up to', 'pay')}"
@@ -119,11 +167,21 @@ def latest_letter(kit_text):
 
 
 @app.before_request
-def same_site_only():
-    """Block form posts from other websites (the dashboard only listens on 127.0.0.1, but a page you
-    visit could still try to post to it)."""
+def guard():
+    """Only known host names (stops DNS-rebinding pages), no form posts from other websites, and a key for
+    any device that isn't this PC. Open http://<PC address>:5000/?key=<DASHBOARD_KEY> once on the phone."""
+    if request.host not in ALLOWED_HOSTS:
+        abort(403)
     origin = request.headers.get("Origin")
-    if request.method == "POST" and origin and not re.match(r"^http://(127\.0\.0\.1|localhost):5000$", origin):
+    if request.method == "POST" and origin and origin != f"http://{request.host}":
+        abort(403)
+    if request.remote_addr in ("127.0.0.1", "::1"):
+        return None
+    if KEY and hmac.compare_digest(request.args.get("key", ""), KEY):
+        resp = redirect(request.path)
+        resp.set_cookie("key", KEY, max_age=365 * 86400, httponly=True, samesite="Strict")
+        return resp
+    if not (KEY and hmac.compare_digest(request.cookies.get("key", ""), KEY)):
         abort(403)
 
 
@@ -143,38 +201,76 @@ def job(job_id):
     status_btns = "".join(
         f"<button class=plain name=status value={s}>{s}</button> " for s in STATUSES if s != row["status"])
     fields = "".join(
-        f"<p><label><b>{html.escape(k)}</b><br><textarea name='{i}' rows=2>{html.escape(notes.get(k, ''))}"
+        f"<p><label><b>{html.escape(k)}</b>"
+        f"{' <span class=muted>(leave blank and Gemini drafts it)</span>' if i == 0 else ''}<br><textarea name='{i}' rows=2>{html.escape(notes.get(k, ''))}"
         f"</textarea></label></p>" for i, k in enumerate(letters.INPUT_KEYS))
     out = ""
     if letter:
         flag_html = "".join(f"<div class=flag>{html.escape(l[2:])}</div>" for l in flags.splitlines()
                             if l.startswith("- ") and l != "- none") or "<p>No flags: every claim matched your facts file.</p>"
-        dl = f"<a class=btn href='{url_for('download', job_id=job_id)}'>Download Word file</a>"
+        dl = (f"<a class=btn href='{url_for('download', job_id=job_id)}'>Download Word file</a> "
+              f"<button class=plain type=button onclick='copyLetter(this)'>Copy letter text</button>")
         out = (f"<div class=card><h2>Cover letter <span class=muted>({html.escape(when)})</span></h2>"
-               f"<h3>Fact-check flags</h3>{flag_html}<p>{dl}</p><pre>{html.escape(letter)}</pre></div>")
+               f"<h3>Fact-check flags</h3>{flag_html}<p>{dl}</p><pre id=letter>{html.escape(letter)}</pre></div>"
+               # the phone reaches the dashboard over plain http, where navigator.clipboard is blocked,
+               # so copy through a selected textarea instead
+               "<script>function copyLetter(b){const t=document.createElement('textarea');"
+               "t.value=document.getElementById('letter').textContent;document.body.appendChild(t);t.select();"
+               "document.execCommand('copy');t.remove();b.textContent='Copied';}</script>")
     err = request.args.get("error")
+    run = RUNS.get(job_id)
+    if run and run["done"]:  # finished since the last refresh: show its error once, the letter shows below
+        RUNS.pop(job_id)
+        err = err or run["error"]
+        run = None
     err_html = f"<div class=flag>{html.escape(err)}</div>" if err else ""
+    if run:  # still writing: a status box instead of the form, and the page refreshes itself every 3 s
+        secs = int((dt.datetime.now() - run["start"]).total_seconds())
+        lines = "".join(f"<li>{html.escape(l)}</li>" for l in run["lines"]) or "<li>Starting...</li>"
+        write_card = (f"<div class=card><h2>Writing your cover letter... {secs // 60}:{secs % 60:02d}</h2>"
+                      f"<progress style='width:100%'></progress><ul class=muted>{lines}</ul>"
+                      f"<p class=muted>Usually 1 to 3 minutes. This page updates by itself; you can leave and "
+                      f"come back.</p></div>")
+    else:
+        write_card = (f"<div class=card><form method=post action='{url_for('generate', job_id=job_id)}'>"
+                      f"{fields}<button>Write cover letter</button> <span class=muted>About 1 to 3 minutes. "
+                      f"Your answers are saved to the kit.</span></form></div>")
     return page(row["title"], f"<p><a href='/'>← all jobs</a></p><h1>{html.escape(row['title'])}</h1>"
                 f"<p class=muted>{html.escape(row['company'])} · {html.escape(row['location'])} · score "
                 f"{html.escape(row['score'] or '-')} · status <b>{html.escape(row['status'])}</b></p>"
                 f"<p><a href='{html.escape(row['url'])}' target=_blank rel=noopener>Open the posting</a></p>"
+                + "".join(f"<a class='btn' style='margin:0 8px 8px 0' href='{url_for('resume', i=i)}'>Resume ({p.suffix[1:].upper()})</a>"
+                          for i, p in enumerate(RESUMES))
+                +
                 f"<form method=post action='{url_for('status', job_id=job_id)}'>Mark as: {status_btns}</form>"
-                f"{err_html}<div class=card><form method=post action='{url_for('generate', job_id=job_id)}'>"
-                f"{fields}<button>Write cover letter</button> <span class=muted>About 1 to 3 minutes. "
-                f"Your answers are saved to the kit.</span></form></div>{out}"
-                f"<details class=card><summary>Posting</summary><pre>{html.escape(posting)}</pre></details>")
+                f"{err_html}{write_card}{'' if run else out}"
+                f"<details class=card><summary>Posting</summary><pre>{html.escape(posting)}</pre></details>",
+                refresh=3 if run else 0)
+
+
+RUNS = {}  # job_id -> {"start", "lines", "done", "error"}: letters being written in the background
 
 
 @app.post("/job/<job_id>/generate")
 def generate(job_id):
+    """Start writing in a background thread and go straight back to the job page, which shows progress."""
     find_row(job_id)
     if not (letters.KITS / f"{job_id}.md").exists():
         return redirect(url_for("job", job_id=job_id, error="No kit for this job, so there's no posting to write from."))
+    if job_id in RUNS and not RUNS[job_id]["done"]:
+        return redirect(url_for("job", job_id=job_id))  # already writing (double tap)
     letters.save_notes(job_id, {k: request.form.get(str(i), "") for i, k in enumerate(letters.INPUT_KEYS)})
-    try:
-        res = letters.write_letter(job_id)
-    except (RuntimeError, SystemExit) as e:
-        return redirect(url_for("job", job_id=job_id, error=str(e)))
+    run = RUNS[job_id] = {"start": dt.datetime.now(), "lines": [], "done": False, "error": None}
+
+    def work():
+        try:
+            letters.write_letter(job_id, say=run["lines"].append)
+        except (RuntimeError, SystemExit) as e:
+            run["error"] = str(e)
+        except Exception as e:  # anything unexpected still ends the run, so the page stops spinning
+            run["error"] = f"{type(e).__name__}: {e}"
+        run["done"] = True
+    threading.Thread(target=work, daemon=True).start()
     return redirect(url_for("job", job_id=job_id))
 
 
@@ -185,6 +281,14 @@ def download(job_id):
     if not path or not path.exists():
         abort(404, "No Word file for this job yet. Write the letter first.")
     return send_file(path, as_attachment=True, download_name=path.name)
+
+
+@app.route("/resume/<int:i>")
+def resume(i):
+    """Your resume files (resume_files in my_config.json), for uploading from the phone."""
+    if i >= len(RESUMES) or not RESUMES[i].exists():
+        abort(404, "Resume file not found. Check resume_files in my_config.json.")
+    return send_file(RESUMES[i], as_attachment=True, download_name=RESUMES[i].name)
 
 
 @app.post("/job/<job_id>/status")
@@ -209,4 +313,4 @@ def quit_app():
 
 
 if __name__ == "__main__":
-    app.run(host="127.0.0.1", port=5000, debug=False)
+    app.run(host=HOST, port=PORT, debug=False)
