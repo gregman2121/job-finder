@@ -160,7 +160,33 @@ No console window: point a desktop shortcut at `.venv\Scripts\pythonw.exe open_d
 `assets\dashboard.ico`). It starts the dashboard in the background and opens your browser; the page's
 **Stop dashboard** button shuts it down.
 
-Models are tried in the order of `letter_models` in `config.json`; a busy one is skipped for 10 minutes.
+**Which model writes:** `letter_model` picks it (each job page has a model and effort picker too).
+`gemini` (the default) uses the free Gemini API key. If you have a Claude subscription and Claude Code
+installed, `sonnet`, `haiku` or `opus` run through your own `claude -p` login: no API key, it counts against
+your plan, and it falls back to Gemini if Claude fails. Effort (`letter_effort` or the picker) is low,
+medium, high, xhigh or max; blank means the model's default.
+
+**Auto** paces your weekly Claude limit. It works out how much of the limit is left *per day* until the
+weekly reset (a fresh week is about 14% a day) and uses the first of `auto_rules` whose `min_per_day` is still
+covered. The defaults:
+
+```json
+"auto_rules": [
+  {"model": "opus",   "min_per_day": 25, "effort": ""},
+  {"model": "sonnet", "min_per_day": 12, "effort": ""},
+  {"model": "haiku",  "min_per_day": 5,  "effort": ""},
+  {"model": "gemini", "min_per_day": 0,  "effort": ""}
+],
+"auto_five_hour_cutoff": 95
+```
+
+So Opus only when plenty is left near the end of a week (use it or lose it), Sonnet for a normal pace, Haiku
+when it's getting tight, and Gemini when it's nearly gone or the 5-hour window is 95% full. Change them on the
+dashboard's **Settings** page (saved to your git-ignored `my_config.json`) or put your own `auto_rules` there by
+hand. The usage numbers come from what `claude -p` reports on each call; until the first Claude letter, Auto
+assumes a fresh week.
+
+Gemini models are tried in the order of `letter_models` in `config.json`; a busy one is skipped for 10 minutes.
 Letters are written in the background, and the job page shows a live status box until it's done. Leave
 "Why this job / company" blank and Gemini drafts it from the posting and your facts file. Word files go to
 `letters_dir` and are never overwritten (a second letter for the same company gets `_v2`).
@@ -172,7 +198,9 @@ spaces) and restart the dashboard. It then also listens on your network, and any
 needs the key once: open `http://<PC address>:5000/?key=<passphrase>` (a cookie remembers it for a year).
 Unknown host names are refused and the key never reaches the log. The page shows the address to use. If
 your router blocks phone-to-PC traffic, install [Tailscale](https://tailscale.com) on both devices; the
-dashboard picks up its address automatically and it works away from home too. Add
+dashboard picks up its address automatically and it works away from home too. With
+`"tailscale_with_dashboard": true` in `my_config.json`, starting the dashboard connects Tailscale and its
+Stop button disconnects it, so the phone link exists only while the dashboard runs. Add
 `"resume_files": ["../resume/Resume.pdf"]` to `my_config.json` for Resume download buttons on each job
 page, next to the cover letter's Download and Copy buttons.
 

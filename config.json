@@ -9,6 +9,16 @@
   "min_coverage": 0.40,
   "min_coverage_from": 5,
   "letter_models": ["gemini-3.6-flash", "gemini-3.5-flash", "gemini-3.5-flash-lite"],
+  "letter_model": "gemini",
+  "letter_effort": "",
+  "auto_rules": [
+    {"model": "opus", "min_per_day": 25, "effort": ""},
+    {"model": "sonnet", "min_per_day": 12, "effort": ""},
+    {"model": "haiku", "min_per_day": 5, "effort": ""},
+    {"model": "gemini", "min_per_day": 0, "effort": ""}
+  ],
+  "auto_five_hour_cutoff": 95,
+  "tailscale_with_dashboard": false,
   "letters_dir": "letters",
 
   "col": {

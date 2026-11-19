@@ -7,14 +7,19 @@ regenerate, and apply yourself: nothing here ever submits an application.
 Needs the GEMINI_API_KEY environment variable. Models are tried in the order of "letter_models" in config.json.
 
 Usage:
-    py letters.py <TrackerID>     # writes the letter into kits/<id>.md and a .docx into letters_dir
+    py letters.py <TrackerID> [auto|sonnet|haiku|opus|gemini] [low|medium|high|xhigh|max]
+    # writes the letter into kits/<id>.md and a .docx into letters_dir
 """
 import datetime as dt
 import json
 import os
 import re
+import shutil
+import subprocess
 import sys
+import tempfile
 import time
+from pathlib import Path
 import urllib.error
 import urllib.request
 
@@ -62,11 +67,127 @@ WHY_RULES = """Write the "why this job / company" note for one job seeker, in hi
 """
 
 
-def draft_why(facts, title, posting, say=lambda msg: None):
-    """Gemini's 'why this company' note, from the posting and FACTS.
+def draft_why(facts, title, posting, say=lambda msg: None, model="gemini", effort=""):
+    """The 'why this company' note, from the posting and FACTS.
     shortcut: no web search; Google Search grounding returned 429 on the free tier (tested 2026-11-18)."""
-    text = gemini(WHY_RULES, f"FACTS:\n{facts}\n\nJOB: {title}\n\nJOB POSTING:\n{posting}", say=say)
+    text = llm(WHY_RULES, f"FACTS:\n{facts}\n\nJOB: {title}\n\nJOB POSTING:\n{posting}", say=say,
+               model=model, effort=effort)
     return " ".join(re.sub(r"\[(?:cite|\d)[^\]]*\]", "", text).replace("**", "").split())
+
+
+CLAUDE_MODELS = ["sonnet", "haiku", "opus"]  # Claude Code model aliases; they run on your Claude plan
+MODELS = ["auto", *CLAUDE_MODELS, "gemini"]
+EFFORTS = ["low", "medium", "high", "xhigh", "max"]
+USAGE = jf.HERE / "claude_usage.json"  # last usage numbers Claude Code reported (git-ignored)
+
+
+def read_usage():
+    try:
+        return json.loads(USAGE.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+FRESH_WEEK = 100 / 7  # % per day when nothing is used yet, or no usage numbers are known
+
+
+def budget_per_day(usage, now):
+    """% of the weekly Claude limit left per day until it resets (14.3 = a full, untouched week)."""
+    week = usage.get("seven_day")
+    if not week or week["resetsAt"] <= now:
+        return FRESH_WEEK
+    days_left = max((week["resetsAt"] - now) / 86400, 0.25)  # under 6 hours left: treat as 6 hours
+    return (1 - week["utilization"]) * 100 / days_left
+
+
+def auto_rules():
+    """The Auto rules, highest threshold first: [{"model", "min_per_day", "effort"}]. Set in config.json /
+    my_config.json ("auto_rules") or on the dashboard's Settings page."""
+    return sorted(jf.CFG.get("auto_rules", []), key=lambda r: -float(r["min_per_day"]))
+
+
+def pick_model(usage=None, now=None):
+    """Auto: the first rule whose min_per_day the budget still covers wins, so with plenty left late in the
+    week you get the strongest model and as it runs low you step down. A 5-hour window at or over
+    auto_five_hour_cutoff % means gemini. Returns (model, effort)."""
+    usage = read_usage() if usage is None else usage
+    now = time.time() if now is None else now
+    hours5 = usage.get("five_hour")
+    if hours5 and hours5["resetsAt"] > now and hours5["utilization"] * 100 >= jf.CFG.get("auto_five_hour_cutoff", 95):
+        return "gemini", ""
+    per_day = budget_per_day(usage, now)
+    for rule in auto_rules():
+        if per_day >= float(rule["min_per_day"]):
+            return rule["model"], rule.get("effort", "")
+    return "gemini", ""
+
+
+def usage_line():
+    """One line for the dashboard: weekly and 5-hour usage, and what Auto would pick right now."""
+    u = read_usage()
+    model, effort = pick_model(u)
+    picks = f"Auto picks {model}" + (f" ({effort} effort)" if effort else "") + "."
+    if not u.get("seven_day"):
+        return f"Claude usage: not known yet (the first Claude letter records it). {picks}"
+    w, h = u["seven_day"], u.get("five_hour") or {}
+    reset = dt.datetime.fromtimestamp(w["resetsAt"])
+    five = f", 5-hour window {h['utilization']:.0%}" if h else ""
+    return (f"Claude this week: {w['utilization']:.0%} used, resets {reset:%a %I:%M %p}{five}, "
+            f"{budget_per_day(u, time.time()):.0f}% a day left "
+            f"(as of {dt.datetime.fromtimestamp(u.get('saved_at', 0)):%a %I:%M %p}). {picks}")
+
+
+def llm(system, prompt, json_out=False, say=lambda msg: None, model="gemini", effort=""):
+    """Ask one model. A Claude model runs your own Claude Code login (no API key; counts against your Claude
+    plan) and falls back to Gemini if it fails."""
+    if model in CLAUDE_MODELS:
+        try:
+            text = claude_code(system, prompt, say, model, effort)
+            llm.used = f"Claude {model}" + (f" ({effort})" if effort else "")
+            return text
+        except (RuntimeError, OSError, subprocess.TimeoutExpired) as e:
+            say(f"Claude didn't answer ({str(e)[:80]}), switching to Gemini.")
+    text = gemini(system, prompt, json_out=json_out, say=say)
+    llm.used = gemini.used
+    return text
+
+
+def claude_code(system, prompt, say, model="sonnet", effort=""):
+    """One headless Claude Code call (claude -p) with no tools, run from an empty folder with only project
+    settings, so your plugins, hooks and CLAUDE.md files stay out of it. Saves the usage numbers it reports."""
+    exe = shutil.which("claude") or str(Path.home() / ".local" / "bin" / "claude.exe")
+    say(f"Asking Claude {model}{f' ({effort} effort)' if effort else ''} through your Claude Code login...")
+    work = Path(tempfile.gettempdir()) / "job-finder-claude"
+    work.mkdir(exist_ok=True)
+    cmd = [exe, "-p", "--model", model, "--system-prompt", system, "--tools", "", "--disallowedTools", "mcp__*",
+           "--strict-mcp-config", "--setting-sources", "project", "--no-session-persistence",
+           "--output-format", "stream-json", "--verbose"]
+    if effort:
+        cmd += ["--effort", effort]
+    r = subprocess.run(cmd, input=prompt, capture_output=True, text=True, encoding="utf-8", timeout=300, cwd=work,
+                       creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))  # no console flash from pythonw
+    return parse_stream(r.stdout, r.stderr or f"exit code {r.returncode}")
+
+
+def parse_stream(stdout, fallback_error):
+    """Read claude's stream-json lines: save the latest usage numbers, return the final answer.
+    shortcut: rate_limit_event isn't in the docs (seen in Claude Code 2.1.319); if it vanishes, Auto just picks sonnet."""
+    result = None
+    for line in stdout.splitlines():
+        try:
+            ev = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        windows = ev.get("rate_limit_info", {}).get("unifiedWindows") if ev.get("type") == "rate_limit_event" else None
+        if windows:
+            USAGE.write_text(json.dumps({**windows, "saved_at": time.time()}), encoding="utf-8")
+        if ev.get("type") == "result":
+            result = ev
+    if not result:
+        raise RuntimeError(fallback_error.strip()[:300])
+    if result.get("is_error") or not result.get("result"):
+        raise RuntimeError(str(result.get("result") or result.get("subtype") or "no answer"))
+    return result["result"].strip()
 
 
 BUSY = {}  # model -> time it said it was overloaded; skipped for BUSY_FOR seconds so each call doesn't re-wait
@@ -146,8 +267,16 @@ def company_of(title_line):
     return title_line.rsplit(" at ", 1)[-1].strip() if " at " in title_line else "Hiring Team"
 
 
-def write_letter(job_id, say=lambda msg: None):
-    """Draft, check and save. Returns {letter, flags, docx}. say() gets progress lines."""
+def write_letter(job_id, say=lambda msg: None, model=None, effort=None):
+    """Draft, check and save. Returns {letter, flags, docx}. say() gets progress lines.
+    model: auto/sonnet/haiku/opus/gemini (default letter_model in config); effort: low..max or "" for default."""
+    model = model or jf.CFG.get("letter_model", "gemini")
+    effort = jf.CFG.get("letter_effort", "") if effort is None else effort
+    if model == "auto":
+        say(usage_line())
+        model, rule_effort = pick_model()
+        effort = effort or rule_effort  # an effort you chose on the page beats the rule's
+    use = {"model": model, "effort": effort}
     if not FACTS.exists():
         sys.exit("Copy facts.example.md to my_facts.md and fill it in first.")
     # The contact block is added locally, so your phone and email never go to the API.
@@ -159,15 +288,17 @@ def write_letter(job_id, say=lambda msg: None):
     steps = 3 if not notes[why] else 2
     if not notes[why]:  # left blank: Gemini drafts it and saves it to the kit, so you can edit and rerun
         say(f"Step 1 of {steps}: drafting 'why this job'")
-        notes[why] = draft_why(facts, title, posting, say=say)
+        notes[why] = draft_why(facts, title, posting, say=say, **use)
         save_notes(job_id, notes)
     notes_txt = "\n".join(f"{k}: {v or '(none)'}" for k, v in notes.items())
     say(f"Step {steps - 1} of {steps}: writing the letter")
-    body = gemini(WRITE_RULES, f"FACTS:\n{facts}\n\nJOB: {title}\n\nJOB POSTING:\n{posting}\n\n"
-                               f"CANDIDATE NOTES:\n{notes_txt}", say=say)
+    body = llm(WRITE_RULES, f"FACTS:\n{facts}\n\nJOB: {title}\n\nJOB POSTING:\n{posting}\n\n"
+                               f"CANDIDATE NOTES:\n{notes_txt}", say=say, **use)
     body = re.sub(r"\[(?:cite|\d)[^\]]*\]", "", body).replace("**", "").strip()  # belt and braces
+    writer = llm.used
     say(f"Step {steps} of {steps}: fact-checking the letter against your facts file")
-    raw = gemini(CHECK_RULES, f"FACTS:\n{facts}\n\nLETTER:\n{body}", json_out=True, say=say)
+    raw = llm(CHECK_RULES, f"FACTS:\n{facts}\n\nLETTER:\n{body}", json_out=True, say=say, **use)
+    raw = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw.strip())  # Claude may fence its JSON
     try:
         flags = json.loads(raw).get("flags", [])
     except json.JSONDecodeError:
@@ -180,7 +311,7 @@ def write_letter(job_id, say=lambda msg: None):
     docx = save_docx(letter, company_of(title))
     kit = KITS / f"{job_id}.md"
     text = kit.read_text(encoding="utf-8")
-    section = (f"## Cover letter ({today.isoformat()}, {gemini.used})\n\n{letter}\n\n"
+    section = (f"## Cover letter ({today.isoformat()}, {writer})\n\n{letter}\n\n"
                f"### Fact-check flags\n\n{flag_txt}\n\nWord file: {docx or 'not made'}\n\n")
     text = text.replace("## Posting", section + "## Posting", 1)
     kit.write_text(text, encoding="utf-8")
@@ -232,9 +363,9 @@ def save_docx(letter, company):
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 2:
+    if not 2 <= len(sys.argv) <= 4 or sys.argv[2:3] and sys.argv[2] not in MODELS:
         sys.exit(__doc__)
-    res = write_letter(sys.argv[1], say=print)
+    res = write_letter(sys.argv[1], say=print, model=(sys.argv[2:3] or [None])[0], effort=(sys.argv[3:4] or [None])[0])
     print(res["letter"], "\n\nFact-check flags:")
     print("\n".join(f"- {f['sentence']}\n  -> {f['problem']}" for f in res["flags"]) or "- none")
     print(f"\nWord file: {res['docx'] or 'not made (pip install python-docx)'}")

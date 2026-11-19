@@ -13,3 +13,5 @@ letters/
 .venv/
 dashboard.log
 .claude/
+claude_usage.json
+.taste-skill/
