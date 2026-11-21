@@ -22,6 +22,7 @@ Core pipeline is pure Python standard library: no installs, no API keys, no acco
 ### 1. Senior Automation Engineer at Northwind Health (score 91)
 - **Where:** Remote: United States | **Pay:** $132,000–$158,000 | **Posted:** 2026-11-10 | via Himalayas
 - **Why:** title: automation engineer; skill match: 6 of 7 (86%); your skills: python, sql, powershell, rest api, servicenow, power automate; gaps: databricks; pay up to $158,000; remote
+- **LLM fit:** 84/100. Strong match on Python automation and healthcare integrations; Databricks is the only real gap.
 - **Link:** https://jobs.ashbyhq.com/northwind/... (employer) | [listing](https://himalayas.app/...)
 - **Tracker ID:** `a1b2c3d4e5f6`
 ```
@@ -38,6 +39,8 @@ Core pipeline is pure Python standard library: no installs, no API keys, no acco
   apply at the source instead of through an aggregator.
 - **Honest AI, kept optional:** the cover-letter writer may only use your own facts file, and a second model
   pass flags any sentence the facts don't back up.
+- **Measured LLM triage:** an optional Gemini pass gives each kept job a fit score and a one-line reason, and was
+  evaluated against 67 of the author's own apply/skip decisions (AUC 0.82 vs 0.72 for the keyword score).
 - **Budget-aware model choice:** letters run on free Gemini or on your own Claude subscription through Claude Code
   (no API key); Auto reads your weekly Claude usage and steps from Opus to Sonnet to Haiku to Gemini as it runs low,
   by rules you set.
@@ -215,6 +218,10 @@ page, next to the cover letter's Download and Copy buttons.
 `py triage.py <TrackerID> ...` has Gemini read each posting against your facts file and preferences and return
 a fit score (0-100) and a one-sentence reason. The posting, title, location and pay go in; the keyword score,
 your tracker status and your notes do not, so it can't copy your answer. Results are cached in `triage.json`.
+
+Every morning: set `"triage": true` in `my_config.json` (needs `GEMINI_API_KEY` and `my_facts.md`). Each report
+entry then gets an **LLM fit** line under **Why**. Ranking stays on the keyword score until the gap below is proven.
+Triage can never break the run: if Gemini is busy or the key or facts file is missing, the report goes out without it.
 
 `py triage.py --eval` checks it against your own decisions: jobs you applied to (or were rejected from) vs jobs
 you skipped. It reports AUC for both rankers, which is the chance that a random applied job ranks above a random
