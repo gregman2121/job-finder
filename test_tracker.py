@@ -25,6 +25,14 @@ def test_write_tracker_is_safe():
         assert not (Path(d) / "tracker.csv.tmp").exists()
 
 
+def test_dashboard_before_first_run():
+    with tempfile.TemporaryDirectory() as d:
+        jf.TRACKER = Path(d) / "tracker.csv"  # doesn't exist yet
+        c = dashboard.app.test_client()
+        r = c.get("/", base_url="http://127.0.0.1:5000", environ_base={"REMOTE_ADDR": "127.0.0.1"})
+        assert r.status_code == 200 and "Nothing here yet" in r.get_data(as_text=True)
+
+
 def test_dashboard_shows_fit():
     import json
     import triage
@@ -48,5 +56,6 @@ def test_dashboard_shows_fit():
 
 if __name__ == "__main__":
     test_write_tracker_is_safe()
+    test_dashboard_before_first_run()
     test_dashboard_shows_fit()
     print("ok")
