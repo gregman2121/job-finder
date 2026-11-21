@@ -9,6 +9,7 @@
   "min_coverage": 0.40,
   "min_coverage_from": 5,
   "letter_models": ["gemini-3.6-flash", "gemini-3.5-flash", "gemini-3.5-flash-lite"],
+  "triage": false,
   "letter_model": "gemini",
   "letter_effort": "",
   "auto_rules": [
