@@ -15,3 +15,5 @@ dashboard.log
 .claude/
 claude_usage.json
 .taste-skill/
+drafts/
+android/
