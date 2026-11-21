@@ -25,6 +25,7 @@ from flask import Flask, abort, redirect, request, send_file, url_for
 
 import job_finder as jf
 import letters
+import triage
 
 app = Flask(__name__)
 
@@ -83,6 +84,7 @@ STATUSES = ["new", "applied", "skip", "rejected", "interview"]
 SORTS = {  # column -> sort key; jobs with no score or pay sort as 0
     "score": lambda r: int(r["score"]) if r["score"].isdigit() else 0,
     "pay": lambda r: int(r["pay_max"]) if r["pay_max"].isdigit() else 0,
+    "fit": lambda r: r["fit"] + 1 if "fit" in r else 0,  # +1 so a real 0 still sorts above "not triaged"
     "found": lambda r: r["found"],
     "company": lambda r: r["company"].lower(),
     "status": lambda r: r["status"],
@@ -203,6 +205,11 @@ def write_tracker(rows):
     os.replace(tmp, jf.TRACKER)
 
 
+def fits():
+    """{job id: {"fit", "reason", "model"}} from triage.json. A job scored under an older prompt too: newest wins."""
+    return {k.split(":")[0]: v for k, v in triage.load().items()}
+
+
 def find_row(job_id):
     for r in read_tracker():
         if r["id"] == job_id:
@@ -216,11 +223,15 @@ def index():
     days = int(request.args.get("days", 14))
     since = (dt.date.today() - dt.timedelta(days=days)).isoformat()
     rows = [r for r in read_tracker() if (show == "all" or r["status"] == show) and r["found"] >= since]
+    llm = fits()
+    for r in rows:
+        if r["id"] in llm:
+            r["fit"] = llm[r["id"]]["fit"]
     # Click a column header to sort by it; click it again to flip the order. Default: newest first.
     sort = request.args.get("sort", "found") if request.args.get("sort") in SORTS else "found"
     desc = request.args.get("dir", "desc") != "asc"
     rows.sort(key=lambda r: (SORTS[sort](r), r["found"]), reverse=desc)  # ties: newest first
-    if sort in ("score", "pay"):  # jobs with no score or pay listed stay at the bottom either way
+    if sort in ("score", "pay", "fit"):  # jobs with no score or pay listed stay at the bottom either way
         rows = [r for r in rows if SORTS[sort](r)] + [r for r in rows if not SORTS[sort](r)]
     q = lambda **kw: "?" + "&".join(f"{k}={v}" for k, v in {"status": show, "days": days, "sort": sort,
                                                                 "dir": "desc" if desc else "asc", **kw}.items())
@@ -230,15 +241,19 @@ def index():
         btn(label + ((" ↓" if desc else " ↑") if key == sort else ""),
             q(sort=key, dir=("asc" if desc else "desc") if key == sort else "desc"),
             extra=" aria-current=true" if key == sort else "")
-        for key, label in (("found", "Newest"), ("score", "Score"), ("pay", "Pay"), ("company", "Company")))
+        for key, label in (("found", "Newest"), ("score", "Score"), ("fit", "LLM fit"), ("pay", "Pay"),
+                           ("company", "Company")))
 
     def card(r):
         pay = f"${int(r['pay_max']):,}" if r["pay_max"].isdigit() else "Pay not listed"
         hi = " hi" if r["score"].isdigit() and int(r["score"]) >= 80 else ""
+        fit = f" · LLM fit {r['fit']}" if "fit" in r else ""
         return (f"<a class=job href='{url_for('job', job_id=r['id'])}'><div class='score{hi}'>{html.escape(r['score'] or '–')}</div>"
                 f"<div><h3>{html.escape(r['title'][:110])}</h3>"
                 f"<p class=meta>{html.escape(r['company'])} · {html.escape(r['location'][:40])}</p>"
-                f"<p class=meta>{pay} · found {html.escape(r['found'])} · <span class=tag>{html.escape(r['status'])}</span></p>"
+                f"<p class=meta>{pay} · found {html.escape(r['found'])}"
+                f"{fit}"
+                f" · <span class=tag>{html.escape(r['status'])}</span></p>"
                 f"</div></a>")
     phone = "".join(f"<p class='muted small'>On your phone: <span class=mono>http://{ip}:{PORT}</span></p>"
                     for ip in phone_ips())
@@ -344,12 +359,15 @@ def job(job_id):
                       f"<div class='row stack'><button class='btn btn--primary'>Write cover letter</button>"
                       f"{btn('Letter settings', '/settings')}</div></form></div>")
     pay = f"${int(row['pay_max']):,}" if row["pay_max"].isdigit() else "pay not listed"
+    t = fits().get(job_id)
+    fit_html = (f"<div class=card><p class=label>LLM fit</p><p style='margin:0'><span class=mono>{t['fit']}/100</span> · "
+                f"{html.escape(t['reason'])}</p></div>" if t else "")
     links = (f"<a class='btn btn--secondary' href='{html.escape(row['url'])}' target=_blank rel=noopener>Open posting ↗</a>"
              + "".join(btn(f"Resume ({p.suffix[1:].upper()})", url_for("resume", i=i)) for i, p in enumerate(RESUMES)))
     return page(row["title"], f"<h1>{html.escape(row['title'])}</h1>"
                 f"<p class=muted>{html.escape(row['company'])} · {html.escape(row['location'])} · {pay} · score "
                 f"<span class=mono>{html.escape(row['score'] or '–')}</span></p>"
-                f"<div class='row fill'>{links}</div>"
+                f"{fit_html}<div class='row fill'>{links}</div>"
                 f"<form method=post action='{url_for('status', job_id=job_id)}' class='row scroll'>"
                 f"<span class=label>Status</span>{status_btns}</form>"
                 f"{err_html}{write_card}{'' if run else out}"
