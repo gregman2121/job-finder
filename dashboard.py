@@ -188,6 +188,8 @@ def page(title, body, refresh=0, actions=""):
 
 
 def read_tracker():
+    if not jf.TRACKER.exists():  # dashboard opened before the first finder run
+        return []
     with jf.TRACKER.open(encoding="utf-8-sig", newline="") as f:
         return list(csv.DictReader(f))
 
