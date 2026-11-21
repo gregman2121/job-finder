@@ -19,6 +19,7 @@ import shutil
 import threading
 import html
 import re
+import urllib.parse
 import datetime as dt
 from pathlib import Path
 
@@ -84,6 +85,7 @@ def phone_ips():
 ALLOWED_HOSTS = {f"{h}:{PORT}" for h in ["127.0.0.1", "localhost", *LAN_IPS]}
 RESUMES = [(jf.HERE / p).resolve() for p in jf.CFG.get("resume_files", [])]
 STATUSES = ["new", "applied", "skip", "rejected", "interview"]
+BOARD_HOSTS = ("himalayas.app", "jobicy.com", "remoteok.com", "remotive.com", "golf-jobs.com")  # aggregators, not employers
 SORTS = {  # column -> sort key; jobs with no score or pay sort as 0
     "score": lambda r: int(r["score"]) if r["score"].isdigit() else 0,
     "pay": lambda r: int(r["pay_max"]) if r["pay_max"].isdigit() else 0,
@@ -367,7 +369,12 @@ def job(job_id):
     t = fits().get(job_id)
     fit_html = (f"<div class=card><p class=label>LLM fit</p><p style='margin:0'><span class=mono>{t['fit']}/100</span> · "
                 f"{html.escape(t['reason'])}</p></div>" if t else "")
-    links = (f"<a class='btn btn--secondary' href='{html.escape(row['url'])}' target=_blank rel=noopener>Open posting ↗</a>"
+    search = ""  # board link (no employer posting found): one tap to the company's own careers page instead
+    if urllib.parse.urlparse(row["url"]).netloc.lower().removeprefix("www.") in BOARD_HOSTS:
+        q = urllib.parse.quote_plus(f"{row['company']} careers {row['title']}")
+        search = (f"<a class='btn btn--primary' href='https://www.google.com/search?q={html.escape(q)}' target=_blank "
+                  f"rel=noopener>Find on their site ↗</a>")
+    links = (search + f"<a class='btn btn--secondary' href='{html.escape(row['url'])}' target=_blank rel=noopener>Open posting ↗</a>"
              + "".join(btn(f"Resume ({p.suffix[1:].upper()})", url_for("resume", i=i)) for i, p in enumerate(RESUMES)))
     return page(row["title"], f"<h1>{html.escape(row['title'])}</h1>"
                 f"<p class=muted>{html.escape(row['company'])} · {html.escape(row['location'])} · {pay} · score "

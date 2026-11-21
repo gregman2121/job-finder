@@ -54,6 +54,21 @@ def test_dashboard_shows_fit():
         assert "0/100" in job and "Needs &lt;Kubernetes&gt;." in job  # newest entry wins, reason is escaped
 
 
+def test_board_links_get_careers_search():
+    with tempfile.TemporaryDirectory() as d:
+        jf.TRACKER = Path(d) / "tracker.csv"
+        jf.HERE = Path(d)
+        dashboard.letters.KITS = Path(d) / "kits"
+        jf.TRACKER.write_text("id,found,score,title,company,location,pay_max,url,status,notes\n"
+                              "j1,2099-01-01,70,Sr. IT Eng,Carrot,Remote,,https://jobicy.com/jobs/1,new,\n"
+                              "g1,2099-01-01,70,Eng,Acme,Remote,,https://job-boards.greenhouse.io/acme/jobs/1,new,\n",
+                              encoding="utf-8-sig")
+        c = dashboard.app.test_client()
+        kw = {"base_url": "http://127.0.0.1:5000", "environ_base": {"REMOTE_ADDR": "127.0.0.1"}}
+        assert "q=Carrot+careers+Sr.+IT+Eng" in c.get("/job/j1", **kw).get_data(as_text=True)
+        assert "Find on their site" not in c.get("/job/g1", **kw).get_data(as_text=True)  # already the employer
+
+
 def test_docx_has_word_type():
     import mimetypes
     assert mimetypes.guess_type("a.docx")[0].endswith("wordprocessingml.document")  # else Android saves ".bin"
@@ -61,6 +76,7 @@ def test_docx_has_word_type():
 
 if __name__ == "__main__":
     test_docx_has_word_type()
+    test_board_links_get_careers_search()
     test_write_tracker_is_safe()
     test_dashboard_before_first_run()
     test_dashboard_shows_fit()
