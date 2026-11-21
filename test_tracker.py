@@ -54,7 +54,13 @@ def test_dashboard_shows_fit():
         assert "0/100" in job and "Needs &lt;Kubernetes&gt;." in job  # newest entry wins, reason is escaped
 
 
+def test_docx_has_word_type():
+    import mimetypes
+    assert mimetypes.guess_type("a.docx")[0].endswith("wordprocessingml.document")  # else Android saves ".bin"
+
+
 if __name__ == "__main__":
+    test_docx_has_word_type()
     test_write_tracker_is_safe()
     test_dashboard_before_first_run()
     test_dashboard_shows_fit()

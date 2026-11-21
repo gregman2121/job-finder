@@ -11,6 +11,7 @@ import hmac
 import ipaddress
 import json
 import logging
+import mimetypes
 import os
 import socket
 import subprocess
@@ -28,6 +29,8 @@ import letters
 import triage
 
 app = Flask(__name__)
+# Windows' MIME table may not know .docx; without this Flask sends application/octet-stream and Android saves ".bin"
+mimetypes.add_type("application/vnd.openxmlformats-officedocument.wordprocessingml.document", ".docx")
 
 
 class HideQuery(logging.Filter):
