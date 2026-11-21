@@ -453,6 +453,23 @@ def add_employer_links(jobs):
     print(f"Employer links: {sum('board_url' in j for j in todo)} of {len(todo)}")
 
 
+def add_triage(jobs):
+    """LLM fit score and one-line reason on each kept job (triage.py), when "triage": true. Never fatal: a busy
+    Gemini, a missing key or a missing facts file means the report goes out without it."""
+    if not CFG.get("triage"):
+        return
+    try:
+        import triage  # here, not at the top: triage.py imports this file
+        res = triage.triage(jobs)
+    except (Exception, SystemExit) as e:  # gemini() calls sys.exit when GEMINI_API_KEY isn't set
+        print(f"  ! triage skipped: {type(e).__name__}: {e}", file=sys.stderr)
+        return
+    for j in jobs:
+        if j["id"] in res:
+            j["triage"] = res[j["id"]]
+    print(f"Triage: {len(res)} of {len(jobs)}")
+
+
 # ---------- output ----------
 
 def load_seen():
@@ -468,6 +485,7 @@ def entry(n, s, why, j):
     return [f"### {n}. {j['title']} at {j['company']} (score {s})",
             f"- **Where:** {j['location']} | **Pay:** {pay} | **Posted:** {j['posted'] or '?'} | via {j['source']}",
             f"- **Why:** {'; '.join(why)}",
+            *([f"- **LLM fit:** {j['triage']['fit']}/100. {j['triage']['reason']}"] if j.get("triage") else []),
             f"- **Link:** {j['url']}" + (f" (employer) | [listing]({j['board_url']})" if j.get("board_url") else
                                           "" if j["source"].startswith(ALREADY_DIRECT) else
                                           " | [find on their careers page](https://www.google.com/search?q="
@@ -619,6 +637,7 @@ def main():
         report = report.with_name(f"{dt.datetime.now():%Y-%m-%d-%H%M}.md")
     dream.sort(key=lambda r: -r[0])
     add_employer_links([j for _, _, j in dream + ranked])
+    add_triage([j for _, _, j in dream + ranked])  # shown next to the keyword score; ranking stays keyword-based
     cache = load_cache()
     cache.update({j["id"]: j for _, _, j in dream + ranked})
     CACHE.write_text(json.dumps(cache, ensure_ascii=False), encoding="utf-8")
