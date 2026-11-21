@@ -210,6 +210,28 @@ Stop button disconnects it, so the phone link exists only while the dashboard ru
 `"resume_files": ["../resume/Resume.pdf"]` to `my_config.json` for Resume download buttons on each job
 page, next to the cover letter's Download and Copy buttons.
 
+## LLM triage, and how well it ranks (optional)
+
+`py triage.py <TrackerID> ...` has Gemini read each posting against your facts file and preferences and return
+a fit score (0-100) and a one-sentence reason. The posting, title, location and pay go in; the keyword score,
+your tracker status and your notes do not, so it can't copy your answer. Results are cached in `triage.json`.
+
+`py triage.py --eval` checks it against your own decisions: jobs you applied to (or were rejected from) vs jobs
+you skipped. It reports AUC for both rankers, which is the chance that a random applied job ranks above a random
+skipped one (0.5 = coin flip, 1.0 = perfect).
+
+First run, 2026-11-20, 67 of the author's labeled jobs (28 applied, 39 skipped):
+
+| Ranker | AUC |
+|---|---|
+| Keyword score (`job_finder.score`) | 0.72 |
+| Gemini triage | 0.82 |
+
+The gap is +0.10, but the 95% bootstrap range is -0.06 to +0.27, so with 67 jobs it is promising and not yet
+proven. Caveats: every labeled job had already passed the keyword filter, and the author saw the keyword score
+when deciding, so this measures ranking *within* the kept jobs. The free tier's limits meant 43 of the 67 were
+scored by the fallback model, gemini-3.5-flash-lite. The prompt was frozen before the first run.
+
 ## License
 
 MIT
