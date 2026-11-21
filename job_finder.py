@@ -257,6 +257,7 @@ def src_workday():
                     desc = json.loads(d)["jobPostingInfo"].get("jobDescription", "") if d else ""
                 except (json.JSONDecodeError, KeyError):
                     pass
+                time.sleep(0.5)  # back-to-back detail fetches got 63 HTTP 429s from Topgolf on 2026-11-19
             out.append(job(f"Workday ({b['name']})", p["title"], b["name"], p.get("locationsText", "?"),
                            f"https://{b['host']}/{b['site']}{p['externalPath']}", desc, posted=p.get("postedOn", "")))
         time.sleep(1)
