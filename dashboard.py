@@ -71,7 +71,12 @@ def tailscale_ips():
     return [ip for ip in socket.gethostbyname_ex(socket.gethostname())[2] if ipaddress.ip_address(ip) in cgnat]
 
 
-LAN_IPS = [*tailscale_ips(), lan_ip()] if KEY else []  # first one is the address shown on the page
+LAN_IPS = [*tailscale_ips(), lan_ip()] if KEY else []
+
+
+def phone_ips():
+    """Address shown on the page: Tailscale if it is up right now (even if it came up after start), else LAN."""
+    return ([*tailscale_ips(), *LAN_IPS] if KEY else [])[:1]
 ALLOWED_HOSTS = {f"{h}:{PORT}" for h in ["127.0.0.1", "localhost", *LAN_IPS]}
 RESUMES = [(jf.HERE / p).resolve() for p in jf.CFG.get("resume_files", [])]
 STATUSES = ["new", "applied", "skip", "rejected", "interview"]
@@ -236,7 +241,7 @@ def index():
                 f"<p class=meta>{pay} · found {html.escape(r['found'])} · <span class=tag>{html.escape(r['status'])}</span></p>"
                 f"</div></a>")
     phone = "".join(f"<p class='muted small'>On your phone: <span class=mono>http://{ip}:{PORT}</span></p>"
-                    for ip in LAN_IPS[:1])
+                    for ip in phone_ips())
     return page("Job finder", f"<h1>Jobs</h1><p class=muted>{len(rows)} {html.escape(show)} jobs from the last "
                 f"{days} days</p>{phone}<div class='row scroll'>{status_btns}</div>"
                 f"<div class='row scroll'><span class=label>Sort</span>{sort_btns}</div>"
@@ -445,7 +450,7 @@ def settings():
         f"{select(f'effort{i}', ['', *letters.EFFORTS], r.get('effort', ''), EFFORT_LABELS)}</label></div>"
         for i, r in enumerate(rows))
     note = (f"<div class={'ok' if msg == 'Saved.' else 'flag'}>{html.escape(msg)}</div>" if msg else "")
-    phone = "".join(f"<p class=muted>Phone address: <span class=mono>http://{ip}:{PORT}</span></p>" for ip in LAN_IPS[:1])
+    phone = "".join(f"<p class=muted>Phone address: <span class=mono>http://{ip}:{PORT}</span></p>" for ip in phone_ips())
     body = (f"<h1>Letter settings</h1>{note}"
             f"<p class=muted>{html.escape(letters.usage_line())}</p>"
             f"<form method=post><div class=card><h2>Default for new letters</h2><div class=grid2>"
