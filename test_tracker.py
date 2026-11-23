@@ -126,6 +126,12 @@ def test_closing_pc_tab_stops_only_when_idle():
         local = {"base_url": "http://127.0.0.1:5000", "environ_base": {"REMOTE_ADDR": "127.0.0.1"}}
         c.post("/closed", environ_base={"REMOTE_ADDR": "100.64.0.5"}, base_url="http://127.0.0.1:5000")
         assert not timers  # phone closing its tab never stops the PC dashboard
+        with tempfile.TemporaryDirectory() as d:
+            jf.TRACKER = Path(d) / "none.csv"
+            c.get("/", **local)  # clicking a link: the new page arrives first, then the old page's beacon
+        c.post("/closed", **local)
+        timers.pop()()
+        assert not stops
         c.post("/closed", **local)
         dashboard.LAST_HIT[0] = time.time() + 1  # a new page loaded during the grace period (reload, link)
         timers.pop()()

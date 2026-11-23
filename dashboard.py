@@ -195,26 +195,30 @@ def page(title, body, refresh=0, actions=""):
 
 
 CLOSE_GRACE = 8  # seconds: a reload, link or form post loads a new page well inside this
+NAV_GAP = 2  # the browser sends the old page's close beacon just AFTER the next page arrives
 LAST_HIT = [0.0]
 
 
-@app.before_request
-def note_hit():
+@app.after_request
+def note_hit(resp):
     if request.path != "/closed":
         LAST_HIT[0] = time.time()
+    return resp
 
 
 @app.post("/closed")
 def closed():
     """A page on this PC was closed or left. If no page loads within CLOSE_GRACE and no letter is being
     written, stop the dashboard. Phones don't count, so closing the tab there keeps it running.
-    shortcut: two PC tabs open, closing one stops both; add a heartbeat if that ever matters."""
+    A page served within NAV_GAP before the beacon means the browser just navigated, not closed.
+    shortcut: two PC tabs open, closing one stops both, and a tab closed under 2 s after loading
+    leaves it running; add a heartbeat if either ever matters."""
     if request.remote_addr not in ("127.0.0.1", "::1"):
         return "", 204
     left = time.time()
 
     def maybe_stop():
-        if LAST_HIT[0] < left and not any(not r["done"] for r in RUNS.values()):
+        if LAST_HIT[0] < left - NAV_GAP and not any(not r["done"] for r in RUNS.values()):
             tailscale("down")
             os._exit(0)
     threading.Timer(CLOSE_GRACE, maybe_stop).start()
