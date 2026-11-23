@@ -17,6 +17,7 @@ import socket
 import subprocess
 import shutil
 import threading
+import time
 import html
 import re
 import urllib.parse
@@ -189,7 +190,35 @@ def page(title, body, refresh=0, actions=""):
             f"<link rel=stylesheet href='https://fonts.googleapis.com/css2?family=Geist:wght@400..700&family=Geist+Mono:wght@400..500&display=swap'>"
             f"<style>{CSS}</style></head><body><header class=top><div class=wrap>"
             f"<a class=brand href='/'>Job finder</a><div class=row style='margin:0'>{actions}</div></div></header>"
-            f"<main><div class=wrap>{body}</div></main></body></html>")
+            f"<main><div class=wrap>{body}</div></main>"
+            "<script>addEventListener('pagehide',()=>navigator.sendBeacon('/closed'))</script></body></html>")
+
+
+CLOSE_GRACE = 8  # seconds: a reload, link or form post loads a new page well inside this
+LAST_HIT = [0.0]
+
+
+@app.before_request
+def note_hit():
+    if request.path != "/closed":
+        LAST_HIT[0] = time.time()
+
+
+@app.post("/closed")
+def closed():
+    """A page on this PC was closed or left. If no page loads within CLOSE_GRACE and no letter is being
+    written, stop the dashboard. Phones don't count, so closing the tab there keeps it running.
+    shortcut: two PC tabs open, closing one stops both; add a heartbeat if that ever matters."""
+    if request.remote_addr not in ("127.0.0.1", "::1"):
+        return "", 204
+    left = time.time()
+
+    def maybe_stop():
+        if LAST_HIT[0] < left and not any(not r["done"] for r in RUNS.values()):
+            tailscale("down")
+            os._exit(0)
+    threading.Timer(CLOSE_GRACE, maybe_stop).start()
+    return "", 204
 
 
 def read_tracker():
@@ -307,6 +336,10 @@ def guard():
         abort(403)
 
 
+SKIP_ASK = (" onclick=\"const r=prompt('Why are you skipping this one? (optional)');"
+            "if(r===null)return false;this.form.reason.value=r\"")
+
+
 @app.route("/job/<job_id>")
 def job(job_id):
     row = find_row(job_id)
@@ -322,6 +355,8 @@ def job(job_id):
     when, letter, flags, _ = latest_letter(text)
     status_btns = "".join(
         f"<button class='btn btn--secondary btn--sm' name=status value={s}"
+        # Skip asks why (optional); Cancel keeps the current status
+        f"{SKIP_ASK if s == 'skip' else ''}"
         f"{' aria-current=true disabled' if s == row['status'] else ''}>{s.capitalize()}</button>" for s in STATUSES)
     fields = "".join(
         f"<label class=field><span>{html.escape(k)}"
@@ -393,8 +428,7 @@ def job(job_id):
                 f"<span class=mono>{html.escape(row['score'] or '–')}</span></p>"
                 f"{fit_html}<div class='row fill'>{links}</div>"
                 f"<form method=post action='{url_for('status', job_id=job_id)}' class='row scroll'>"
-                f"<span class=label>Status</span>{status_btns}"
-                f"<input name=reason placeholder='Reason (optional), e.g. pay too low' aria-label='Reason'></form>"
+                f"<span class=label>Status</span>{status_btns}<input type=hidden name=reason></form>"
                 f"{notes_html}{msg_html}{err_html}{write_card}{'' if run else out}"
                 f"<details class=card><summary>Job posting</summary><pre>{html.escape(posting)}</pre></details>",
                 refresh=3 if run else 0, actions=btn("← All jobs", "/"))

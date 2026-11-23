@@ -113,6 +113,31 @@ def test_usage_line_after_reset():
         assert "90%" not in letters.usage_line() and "reset since" in letters.usage_line()
 
 
+def test_closing_pc_tab_stops_only_when_idle():
+    import time
+    stops = []
+    timers = []
+    real_timer, real_exit, real_ts = dashboard.threading.Timer, dashboard.os._exit, dashboard.tailscale
+    dashboard.threading.Timer = lambda secs, fn: type("T", (), {"start": lambda self: timers.append(fn)})()
+    dashboard.os._exit = stops.append
+    dashboard.tailscale = lambda cmd: None
+    try:
+        c = dashboard.app.test_client()
+        local = {"base_url": "http://127.0.0.1:5000", "environ_base": {"REMOTE_ADDR": "127.0.0.1"}}
+        c.post("/closed", environ_base={"REMOTE_ADDR": "100.64.0.5"}, base_url="http://127.0.0.1:5000")
+        assert not timers  # phone closing its tab never stops the PC dashboard
+        c.post("/closed", **local)
+        dashboard.LAST_HIT[0] = time.time() + 1  # a new page loaded during the grace period (reload, link)
+        timers.pop()()
+        assert not stops
+        c.post("/closed", **local)
+        dashboard.LAST_HIT[0] = 0
+        timers.pop()()
+        assert stops == [0]  # tab really closed: dashboard stops
+    finally:
+        dashboard.threading.Timer, dashboard.os._exit, dashboard.tailscale = real_timer, real_exit, real_ts
+
+
 def test_docx_has_word_type():
     import mimetypes
     assert mimetypes.guess_type("a.docx")[0].endswith("wordprocessingml.document")  # else Android saves ".bin"
@@ -127,4 +152,5 @@ if __name__ == "__main__":
     test_status_reason_goes_to_notes()
     test_add_fact()
     test_usage_line_after_reset()
+    test_closing_pc_tab_stops_only_when_idle()
     print("ok")
