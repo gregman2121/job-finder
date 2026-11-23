@@ -18,6 +18,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from pathlib import Path
 import urllib.error
@@ -122,6 +123,26 @@ def pick_model(usage=None, now=None):
     return "gemini", ""
 
 
+REFRESH_AFTER = 15 * 60  # seconds before saved usage numbers count as stale
+_refreshing = threading.Lock()
+
+
+def refresh_usage():
+    """Usage numbers only arrive with a Claude answer, so when they're stale, ask Haiku for one word in the
+    background (a tiny slice of your plan) and the next page shows current numbers. Never blocks a page."""
+    if time.time() - read_usage().get("saved_at", 0) < REFRESH_AFTER or not _refreshing.acquire(blocking=False):
+        return
+
+    def ping():
+        try:
+            claude_code("Reply with the single word OK.", "OK", say=lambda m: None, model="haiku")
+        except (RuntimeError, OSError, subprocess.TimeoutExpired):
+            pass  # no Claude login or offline: the line just keeps its 'as of' time
+        finally:
+            _refreshing.release()
+    threading.Thread(target=ping, daemon=True).start()
+
+
 def usage_line():
     """One line for the dashboard: weekly and 5-hour usage, and what Auto would pick right now."""
     u = read_usage()
@@ -129,7 +150,10 @@ def usage_line():
     picks = f"Auto picks {model}" + (f" ({effort} effort)" if effort else "") + "."
     if not u.get("seven_day"):
         return f"Claude usage: not known yet (the first Claude letter records it). {picks}"
-    w, h = u["seven_day"], u.get("five_hour") or {}
+    now = time.time()
+    if u["seven_day"]["resetsAt"] <= now:  # saved before the weekly reset: those numbers are gone
+        return f"Claude this week: reset since the last check, fresh numbers coming. {picks}"
+    w, h = u["seven_day"], u.get("five_hour") if (u.get("five_hour") or {}).get("resetsAt", 0) > now else {}
     reset = dt.datetime.fromtimestamp(w["resetsAt"])
     five = f", 5-hour window {h['utilization']:.0%}" if h else ""
     return (f"Claude this week: {w['utilization']:.0%} used, resets {reset:%a %I:%M %p}{five}, "
@@ -256,6 +280,26 @@ def save_notes(job_id, notes):
         else:
             text = text.replace("## Posting", f"{line}\n\n## Posting", 1)
     path.write_text(text, encoding="utf-8")
+
+
+def add_fact(fact, true):
+    """Save a fact-check answer to the facts file: true -> '## Confirmed by Greg' (made above 'Not yet' if
+    missing), false -> '## Not yet'. Both sections go to the writer and the checker on every letter."""
+    text = FACTS.read_text(encoding="utf-8")
+    head = "## Confirmed by Greg" if true else "## Not yet"
+    if head not in text:
+        if true and "## Not yet" in text:
+            text = text.replace("## Not yet", f"{head}\n\n## Not yet", 1)
+        else:
+            text = text.rstrip() + f"\n\n{head}\n"
+    start = text.index(head)
+    nxt = text.find("\n## ", start + len(head))
+    end = len(text) if nxt == -1 else nxt
+    section = text[start:end].rstrip() + f"\n- {fact}\n"
+    text = text[:start] + section + ("\n" + text[end:].lstrip("\n") if nxt != -1 else "")
+    tmp = FACTS.with_suffix(".md.tmp")  # swap in whole, so a crash can't leave half a facts file
+    tmp.write_text(text, encoding="utf-8")
+    os.replace(tmp, FACTS)
 
 
 def contact_block():
