@@ -27,5 +27,6 @@ sys.path.insert(0, str(here))
 import dashboard  # noqa: E402
 
 threading.Thread(target=lambda: (time.sleep(1.5), webbrowser.open(URL)), daemon=True).start()
+dashboard.letters.refresh_usage()  # fresh Claude usage numbers for the first page you open
 dashboard.tailscale("up")  # off unless tailscale_with_dashboard is true in my_config.json
 dashboard.app.run(host=dashboard.HOST, port=dashboard.PORT, debug=False)

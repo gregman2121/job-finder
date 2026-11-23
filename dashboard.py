@@ -17,6 +17,7 @@ import socket
 import subprocess
 import shutil
 import threading
+import time
 import html
 import re
 import urllib.parse
@@ -189,7 +190,39 @@ def page(title, body, refresh=0, actions=""):
             f"<link rel=stylesheet href='https://fonts.googleapis.com/css2?family=Geist:wght@400..700&family=Geist+Mono:wght@400..500&display=swap'>"
             f"<style>{CSS}</style></head><body><header class=top><div class=wrap>"
             f"<a class=brand href='/'>Job finder</a><div class=row style='margin:0'>{actions}</div></div></header>"
-            f"<main><div class=wrap>{body}</div></main></body></html>")
+            f"<main><div class=wrap>{body}</div></main>"
+            "<script>addEventListener('pagehide',()=>navigator.sendBeacon('/closed'))</script></body></html>")
+
+
+CLOSE_GRACE = 8  # seconds: a reload, link or form post loads a new page well inside this
+NAV_GAP = 2  # the browser sends the old page's close beacon just AFTER the next page arrives
+LAST_HIT = [0.0]
+
+
+@app.after_request
+def note_hit(resp):
+    if request.path != "/closed":
+        LAST_HIT[0] = time.time()
+    return resp
+
+
+@app.post("/closed")
+def closed():
+    """A page on this PC was closed or left. If no page loads within CLOSE_GRACE and no letter is being
+    written, stop the dashboard. Phones don't count, so closing the tab there keeps it running.
+    A page served within NAV_GAP before the beacon means the browser just navigated, not closed.
+    shortcut: two PC tabs open, closing one stops both, and a tab closed under 2 s after loading
+    leaves it running; add a heartbeat if either ever matters."""
+    if request.remote_addr not in ("127.0.0.1", "::1"):
+        return "", 204
+    left = time.time()
+
+    def maybe_stop():
+        if LAST_HIT[0] < left - NAV_GAP and not any(not r["done"] for r in RUNS.values()):
+            tailscale("down")
+            os._exit(0)
+    threading.Timer(CLOSE_GRACE, maybe_stop).start()
+    return "", 204
 
 
 def read_tracker():
@@ -307,6 +340,10 @@ def guard():
         abort(403)
 
 
+SKIP_ASK = (" onclick=\"const r=prompt('Why are you skipping this one? (optional)');"
+            "if(r===null)return false;this.form.reason.value=r\"")
+
+
 @app.route("/job/<job_id>")
 def job(job_id):
     row = find_row(job_id)
@@ -322,6 +359,8 @@ def job(job_id):
     when, letter, flags, _ = latest_letter(text)
     status_btns = "".join(
         f"<button class='btn btn--secondary btn--sm' name=status value={s}"
+        # Skip asks why (optional); Cancel keeps the current status
+        f"{SKIP_ASK if s == 'skip' else ''}"
         f"{' aria-current=true disabled' if s == row['status'] else ''}>{s.capitalize()}</button>" for s in STATUSES)
     fields = "".join(
         f"<label class=field><span>{html.escape(k)}"
@@ -329,7 +368,16 @@ def job(job_id):
         f"{html.escape(notes.get(k, ''))}</textarea></label>" for i, k in enumerate(letters.INPUT_KEYS))
     out = ""
     if letter:
-        flag_html = "".join(f"<div class=flag>{html.escape(l[2:])}</div>" for l in flags.splitlines()
+        def flag(line):  # each flag can be saved to the facts file, so the next check knows the answer
+            m = re.match(r'- "(.*)": (.*)$', line)
+            claim = m.group(1) if m else line[2:]
+            return (f"<form method=post action='{url_for('add_fact', job_id=job_id)}' class=flag>"
+                    f"{html.escape(line[2:])}<textarea name=fact rows=2 aria-label='Fact to save'>{html.escape(claim)}"
+                    f"</textarea><div class='row stack'>"
+                    f"<button class='btn btn--secondary btn--sm' name=true value=1>True: save as a fact</button>"
+                    f"<button class='btn btn--secondary btn--sm' name=true value=0>Not true: never claim</button>"
+                    f"</div></form>")
+        flag_html = "".join(flag(l) for l in flags.splitlines()
                             if l.startswith("- ") and l != "- none") or "<div class=ok>No flags: every claim matched your facts file.</div>"
         dl = (btn("Download Word file", url_for("download", job_id=job_id))
               + "<button class='btn btn--secondary' type=button onclick='copyLetter(this)'>Copy letter text</button>")
@@ -348,6 +396,9 @@ def job(job_id):
         err = err or run["error"]
         run = None
     err_html = f"<div class=flag>{html.escape(err)}</div>" if err else ""
+    msg_html = f"<div class=ok>{html.escape(request.args['msg'])}</div>" if request.args.get("msg") else ""
+    notes_html = f"<p class='muted small'>Notes: {html.escape(row['notes'])}</p>" if row["notes"] else ""
+    letters.refresh_usage()  # so the usage line below isn't days old
     if run:  # still writing: a status box instead of the form, and the page refreshes itself every 3 s
         secs = int((dt.datetime.now() - run["start"]).total_seconds())
         lines = "".join(f"<li>{html.escape(l)}</li>" for l in run["lines"]) or "<li>Starting...</li>"
@@ -381,8 +432,8 @@ def job(job_id):
                 f"<span class=mono>{html.escape(row['score'] or '–')}</span></p>"
                 f"{fit_html}<div class='row fill'>{links}</div>"
                 f"<form method=post action='{url_for('status', job_id=job_id)}' class='row scroll'>"
-                f"<span class=label>Status</span>{status_btns}</form>"
-                f"{err_html}{write_card}{'' if run else out}"
+                f"<span class=label>Status</span>{status_btns}<input type=hidden name=reason></form>"
+                f"{notes_html}{msg_html}{err_html}{write_card}{'' if run else out}"
                 f"<details class=card><summary>Job posting</summary><pre>{html.escape(posting)}</pre></details>",
                 refresh=3 if run else 0, actions=btn("← All jobs", "/"))
 
@@ -439,6 +490,7 @@ EFFORT_LABELS = {"": "Default effort", **{e: f"{e} effort" for e in letters.EFFO
 def settings():
     """Edit the default model/effort and the Auto rules. Saved to my_config.json (yours, git-ignored)."""
     msg = ""
+    letters.refresh_usage()
     if request.method == "POST":
         f = request.form
         rules = []
@@ -518,12 +570,27 @@ def status(job_id):
     new = request.form.get("status")
     if new not in STATUSES:
         abort(400)
+    reason = " ".join(request.form.get("reason", "").split())  # one line, so the CSV row stays one row
     rows = read_tracker()
     for r in rows:
         if r["id"] == job_id:
             r["status"] = new
+            if reason:
+                r["notes"] = " | ".join(filter(None, [r["notes"], f"{dt.date.today()}: {new}: {reason}"]))
     write_tracker(rows)
     return redirect(url_for("job", job_id=job_id))
+
+
+@app.post("/job/<job_id>/fact")
+def add_fact(job_id):
+    fact = " ".join(request.form.get("fact", "").split())
+    if not fact:
+        return redirect(url_for("job", job_id=job_id, error="The fact was empty, so nothing was saved."))
+    is_true = request.form.get("true") == "1"
+    letters.add_fact(fact, is_true)
+    where = "Confirmed by Greg" if is_true else "Not yet (never claim these)"
+    return redirect(url_for("job", job_id=job_id, msg=f"Saved to my_facts.md under '{where}'. "
+                            "The next letter and fact-check will use it."))
 
 
 @app.post("/quit")
@@ -536,4 +603,5 @@ def quit_app():
 
 if __name__ == "__main__":
     tailscale("up")
+    letters.refresh_usage()
     app.run(host=HOST, port=PORT, debug=False)
